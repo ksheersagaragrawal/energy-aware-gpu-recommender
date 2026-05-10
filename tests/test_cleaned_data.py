@@ -12,6 +12,8 @@ Run with:
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -46,7 +48,7 @@ from src.validation import (
 
 
 @pytest.fixture()
-def raw_game_requirements_csv(tmp_path: pytest.TempPathFactory) -> str:
+def raw_game_requirements_csv(tmp_path: pathlib.Path) -> str:
     """Write a minimal synthetic game-requirements CSV and return its path."""
     data = {
         "game_title": ["Game A", "Game B", "Game C", "Game D"],
@@ -62,7 +64,7 @@ def raw_game_requirements_csv(tmp_path: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture()
-def raw_gpu_specs_csv(tmp_path: pytest.TempPathFactory) -> str:
+def raw_gpu_specs_csv(tmp_path: pathlib.Path) -> str:
     """Write a minimal synthetic GPU-specs CSV and return its path."""
     data = {
         "gpu_name": ["RTX 3080", "RX 6800 XT", "GTX 1080 Ti", "Bad GPU"],
