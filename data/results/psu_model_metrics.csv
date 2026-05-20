@@ -1,0 +1,8 @@
+target,model,prediction_column_to_use,test_mae,test_rmse,test_r2,val_mae,params
+psu_w,Gradient Boosting,pred_psu_w_gradient_boosting,26.392081467193282,49.462027599440546,0.9090173441947306,22.01320256492304,"{'n_estimators': 800, 'learning_rate': 0.075, 'max_depth': 6, 'min_samples_leaf': 1, 'random_state': 42}"
+psu_w,Random Forest,pred_psu_w_random_forest,27.311574408947827,47.01904102121258,0.9177828698453777,23.365404161664667,"{'n_estimators': 500, 'max_depth': None, 'min_samples_leaf': 1, 'max_features': 0.7, 'n_jobs': -1, 'random_state': 42}"
+psu_w,XGBoost,pred_psu_w_xgboost,28.0831444977708,46.81938652934586,0.9184796160090357,22.81494332962677,"{'objective': 'reg:squarederror', 'subsample': 0.9, 'colsample_bytree': 0.9, 'n_estimators': 800, 'learning_rate': 0.05, 'max_depth': 5, 'min_child_weight': 5, 'reg_lambda': 5.0, 'random_state': 42}"
+psu_w,MLP,pred_psu_w_mlp,47.47058414507516,71.25632959820189,0.8111740513458375,39.6490915763278,"{'hidden_layers': (256, 128), 'learning_rate': 0.001, 'weight_decay': 0.0001, 'dropout': 0.1, 'epochs': 1000}"
+psu_w,Ridge Regression,pred_psu_w_ridge_regression,59.69297083939366,82.86947379759684,0.7446099687183834,55.8666541332254,{'alpha': 0.01}
+psu_w,Lasso Regression,pred_psu_w_lasso_regression,59.694563940586434,82.87231948219721,0.744592428557356,55.86598525156989,"{'alpha': 0.0001, 'max_iter': 10000}"
+psu_w,Linear Regression,pred_psu_w_linear_regression,59.694832747136225,82.87301289465583,0.7445881544273666,55.866024285712804,{}

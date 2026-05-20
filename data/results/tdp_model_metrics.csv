@@ -1,0 +1,8 @@
+target,model,prediction_column_to_use,test_mae,test_rmse,test_r2,val_mae,params
+tdp_w,XGBoost,pred_tdp_w_xgboost,15.555178380716702,24.79671242771394,0.9257447395373432,12.233810733346377,"{'objective': 'reg:squarederror', 'subsample': 0.9, 'colsample_bytree': 0.9, 'n_estimators': 300, 'learning_rate': 0.05, 'max_depth': 6, 'min_child_weight': 1, 'reg_lambda': 1.0, 'random_state': 42}"
+tdp_w,Gradient Boosting,pred_tdp_w_gradient_boosting,15.844968567052565,26.426206360938522,0.9156648427638867,11.370035816417527,"{'n_estimators': 800, 'learning_rate': 0.03, 'max_depth': 6, 'min_samples_leaf': 1, 'random_state': 42}"
+tdp_w,Random Forest,pred_tdp_w_random_forest,16.249071627402717,25.838927214925317,0.919371612931156,11.798689096471925,"{'n_estimators': 800, 'max_depth': None, 'min_samples_leaf': 1, 'max_features': 'sqrt', 'n_jobs': -1, 'random_state': 42}"
+tdp_w,MLP,pred_tdp_w_mlp,20.764011978600095,31.437231184409526,0.880648579433086,18.536318354245996,"{'hidden_layers': (256, 128), 'learning_rate': 0.001, 'weight_decay': 0.001, 'dropout': 0.0, 'epochs': 1000}"
+tdp_w,Linear Regression,pred_tdp_w_linear_regression,32.11029274896044,44.078860720285746,0.7653612496705088,29.45295703856587,{}
+tdp_w,Lasso Regression,pred_tdp_w_lasso_regression,32.11078868788777,44.07921805856376,0.7653574453186953,29.453154363959484,"{'alpha': 0.0001, 'max_iter': 10000}"
+tdp_w,Ridge Regression,pred_tdp_w_ridge_regression,32.11173170860142,44.08028560282876,0.765346079674843,29.45376217659089,{'alpha': 0.01}
