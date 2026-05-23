@@ -1,0 +1,5 @@
+.DS_Store
+
+# Generated outputs
+/data/results/
+/figures/
