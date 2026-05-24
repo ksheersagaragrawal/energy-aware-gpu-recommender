@@ -1,0 +1,230 @@
+% Task 4: Baseline evaluation tables, figures, and references
+
+\subsection{Baseline Evaluation: Results, Figures, and Tables}
+\label{subsec:baseline_eval_results}
+
+This subsection reports the key numeric summaries extracted from the baseline evaluation and the next-steps diagnostics. The analysis is designed to make trade-offs explicit (power, efficiency, over-provisioning), expose method collapse via diversity statistics, and summarize stability between the minimum and recommended tracks. These diagnostics follow standard sensitivity analysis practice \cite{Saltelli2008,Saltelli2010} and use rank correlation to assess ordering stability across tracks \cite{Spearman1904}.
+
+\paragraph{Why this analysis matters.}
+GPU selection is a constrained, multi-objective decision. Pure performance selection wastes power, while pure efficiency can under-provision. The analysis quantifies these tensions and shows where different objectives collapse to the same choice, which is critical for interpreting whether the proposed method offers meaningful trade-offs rather than trivial agreement.
+
+\paragraph{Industry relevance.}
+The results inform practical GPU selection for PC builders, OEM configuration, and energy-aware procurement. Metrics like PSU headroom and performance-per-watt map directly to operational cost, thermal limits, and sustainability targets in real deployments.
+
+\subsubsection{Figures (Min and Recom Tracks)}
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.48\linewidth]{figures/avg_tdp_by_method_min.png}
+	\includegraphics[width=0.48\linewidth]{figures/avg_tdp_by_method_recom.png}
+	\caption{Average selected TDP by method for min (left) and recom (right) tracks.}
+	\label{fig:avg_tdp}
+\end{figure}
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.48\linewidth]{figures/avg_psu_by_method_min.png}
+	\includegraphics[width=0.48\linewidth]{figures/avg_psu_by_method_recom.png}
+	\caption{Average selected PSU by method for min (left) and recom (right) tracks.}
+	\label{fig:avg_psu}
+\end{figure}
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.48\linewidth]{figures/perf_per_watt_by_method_min.png}
+	\includegraphics[width=0.48\linewidth]{figures/perf_per_watt_by_method_recom.png}
+	\caption{Average performance-per-watt by method for min (left) and recom (right) tracks.}
+	\label{fig:ppw}
+\end{figure}
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.48\linewidth]{figures/overprovisioning_by_method_min.png}
+	\includegraphics[width=0.48\linewidth]{figures/overprovisioning_by_method_recom.png}
+	\caption{Over-provisioning by method for min (left) and recom (right) tracks.}
+	\label{fig:overprov}
+\end{figure}
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.48\linewidth]{figures/efficiency_regret_by_method_min.png}
+	\includegraphics[width=0.48\linewidth]{figures/efficiency_regret_by_method_recom.png}
+	\caption{Efficiency regret by method for min (left) and recom (right) tracks.}
+	\label{fig:eff_regret}
+\end{figure}
+
+\begin{figure}[t]
+	\centering
+	\includegraphics[width=0.48\linewidth]{figures/pareto_scatter_min.png}
+	\includegraphics[width=0.48\linewidth]{figures/pareto_scatter_recom.png}
+	\caption{Pareto scatter plots for min (left) and recom (right) tracks.}
+	\label{fig:pareto}
+\end{figure}
+
+\paragraph{Interpretation of figures.}
+Figures \ref{fig:avg_tdp}--\ref{fig:pareto} show that performance-first baselines dominate power usage, while efficiency baselines converge on low-power GPUs. Pareto and safety-factor baselines occupy the middle ground, which is the intended behavior for multi-objective selection.
+
+\subsubsection{Baseline Summary (Min Track)}
+\begin{table}[t]
+\centering
+\small
+\caption{Baseline summary (min track).}
+\label{tab:baseline_min}
+\begin{tabular}{lrrrrr}
+\hline
+Method & TDP & PSU & PPW & Overprov & EffRegret \\
+\hline
+highest\_perf & 600.000 & 1000.000 & 0.001341 & 0.711314 & 0.004608 \\
+knn\_retrieval & 81.242 & 285.909 & 0.000490 & -0.051849 & 0.005458 \\
+lowest\_psu & 43.000 & 200.000 & 0.005949 & 0.162595 & 0.000000 \\
+lowest\_tdp & 13.324 & 200.000 & 0.000725 & -0.080636 & 0.005224 \\
+pareto\_knee & 140.597 & 301.234 & 0.002743 & 0.292082 & 0.003206 \\
+perf\_per\_tdp & 43.000 & 200.000 & 0.005949 & 0.162595 & 0.000000 \\
+proposed\_recommender & 43.291 & 200.494 & 0.005932 & 0.163077 & 0.000017 \\
+random\_feasible & 137.086 & 378.177 & 0.000904 & 0.042173 & 0.005045 \\
+safety\_factor\_perf\_per\_tdp & 53.369 & 217.340 & 0.005694 & 0.180484 & 0.000255 \\
+smallest\_margin & 108.626 & 329.436 & 0.000777 & 0.000499 & 0.005172 \\
+weighted\_sum & 43.000 & 200.000 & 0.005949 & 0.162595 & 0.000000 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Baseline Summary (Recom Track)}
+\begin{table}[t]
+\centering
+\small
+\caption{Baseline summary (recom track).}
+\label{tab:baseline_recom}
+\begin{tabular}{lrrrrr}
+\hline
+Method & TDP & PSU & PPW & Overprov & EffRegret \\
+\hline
+highest\_perf & 600.000 & 1000.000 & 0.001341 & 0.634826 & 0.004606 \\
+knn\_retrieval & 112.517 & 333.996 & 0.000627 & -0.097686 & 0.005320 \\
+lowest\_psu & 43.028 & 200.048 & 0.005947 & 0.086153 & 0.000000 \\
+lowest\_tdp & 13.804 & 200.048 & 0.000991 & -0.145936 & 0.004956 \\
+pareto\_knee & 145.508 & 311.396 & 0.002723 & 0.223272 & 0.003225 \\
+perf\_per\_tdp & 43.028 & 200.048 & 0.005947 & 0.086153 & 0.000000 \\
+proposed\_recommender & 44.872 & 203.182 & 0.005838 & 0.089063 & 0.000109 \\
+random\_feasible & 141.198 & 385.506 & 0.000931 & -0.026536 & 0.005017 \\
+safety\_factor\_perf\_per\_tdp & 95.574 & 298.497 & 0.005045 & 0.183779 & 0.000902 \\
+smallest\_margin & 159.207 & 408.018 & 0.001042 & 0.001086 & 0.004905 \\
+weighted\_sum & 43.028 & 200.048 & 0.005947 & 0.086153 & 0.000000 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Method Diversity (Collapse Diagnostic)}
+\begin{table}[t]
+\centering
+\small
+\caption{Method diversity (unique GPUs and top-1 share).}
+\label{tab:diversity}
+\begin{tabular}{llrr}
+\hline
+Track & Method & Unique GPUs & Top1 Share \\
+\hline
+min & highest\_perf & 1 & 1.000 \\
+min & knn\_retrieval & 370 & 0.182 \\
+min & lowest\_psu & 1 & 1.000 \\
+min & lowest\_tdp & 8 & 0.497 \\
+min & pareto\_knee & 2 & 0.996 \\
+min & perf\_per\_tdp & 1 & 1.000 \\
+min & proposed\_recommender & 4 & 0.990 \\
+min & random\_feasible & 1120 & 0.004 \\
+min & safety\_factor\_perf\_per\_tdp & 5 & 0.904 \\
+min & smallest\_margin & 524 & 0.172 \\
+min & weighted\_sum & 1 & 1.000 \\
+recom & highest\_perf & 1 & 1.000 \\
+recom & knn\_retrieval & 392 & 0.152 \\
+recom & lowest\_psu & 2 & 0.999 \\
+recom & lowest\_tdp & 10 & 0.354 \\
+recom & pareto\_knee & 2 & 0.962 \\
+recom & perf\_per\_tdp & 2 & 0.999 \\
+recom & proposed\_recommender & 4 & 0.937 \\
+recom & random\_feasible & 1125 & 0.003 \\
+recom & safety\_factor\_perf\_per\_tdp & 6 & 0.706 \\
+recom & smallest\_margin & 473 & 0.153 \\
+recom & weighted\_sum & 2 & 0.999 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Track Stability (Rank Correlation)}
+\begin{table}[t]
+\centering
+\small
+\caption{Min vs recom rank stability (Spearman correlation).}
+\label{tab:rank_corr}
+\begin{tabular}{lr}
+\hline
+Metric & Spearman $r$ \\
+\hline
+selected\_tdp\_w\_mean & 0.972 \\
+selected\_psu\_w\_mean & 0.981 \\
+selected\_perf\_per\_watt\_mean & 0.972 \\
+overprov\_abs\_mean & 0.991 \\
+eff\_regret\_abs\_mean & 0.972 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Perf-Feasibility Ablation (Alpha = 1.10)}
+\begin{table}[t]
+\centering
+\small
+\caption{Perf-feasible ablation (alpha = 1.10), min track.}
+\label{tab:perf_alpha_min}
+\begin{tabular}{lrrrrr}
+\hline
+Method & Coverage & TDP & PSU & PPW & Overprov \\
+\hline
+highest\_perf & 0.9999 & 600.000 & 1000.000 & 0.001341 & 0.711435 \\
+knn\_retrieval & 0.9999 & 144.639 & 387.279 & 0.000643 & 0.015094 \\
+lowest\_psu & 0.9999 & 51.207 & 213.976 & 0.005690 & 0.174295 \\
+lowest\_tdp & 0.9999 & 35.976 & 213.976 & 0.003279 & 0.038838 \\
+pareto\_knee & 0.9999 & 189.879 & 407.132 & 0.002563 & 0.376167 \\
+perf\_per\_tdp & 0.9999 & 53.355 & 217.316 & 0.005694 & 0.180484 \\
+proposed\_recommender & 0.9999 & 53.355 & 217.316 & 0.005694 & 0.180484 \\
+random\_feasible & 0.9999 & 195.712 & 478.942 & 0.001238 & 0.150844 \\
+safety\_factor\_perf\_per\_tdp & 0.9985 & 53.369 & 217.340 & 0.005694 & 0.180484 \\
+smallest\_margin & 0.9985 & 114.541 & 342.171 & 0.000861 & 0.009909 \\
+weighted\_sum & 0.9999 & 51.243 & 214.148 & 0.005691 & 0.174549 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Perf-feasible ablation (alpha = 1.10), recom track.}
+\label{tab:perf_alpha_recom}
+\begin{tabular}{lrrrrr}
+\hline
+Method & Coverage & TDP & PSU & PPW & Overprov \\
+\hline
+highest\_perf & 0.9992 & 600.000 & 1000.000 & 0.001341 & 0.635349 \\
+knn\_retrieval & 0.9992 & 215.050 & 520.340 & 0.000823 & 0.024693 \\
+lowest\_psu & 0.9992 & 82.335 & 275.549 & 0.005012 & 0.142649 \\
+lowest\_tdp & 0.9992 & 70.976 & 275.549 & 0.003756 & 0.055353 \\
+pareto\_knee & 0.9992 & 220.307 & 482.638 & 0.002516 & 0.369345 \\
+perf\_per\_tdp & 0.9992 & 95.559 & 298.470 & 0.005045 & 0.183779 \\
+proposed\_recommender & 0.9992 & 95.559 & 298.470 & 0.005045 & 0.183779 \\
+random\_feasible & 0.9992 & 237.555 & 548.162 & 0.001428 & 0.164975 \\
+safety\_factor\_perf\_per\_tdp & 0.9989 & 95.574 & 298.497 & 0.005045 & 0.183779 \\
+smallest\_margin & 0.9989 & 162.333 & 423.229 & 0.001097 & 0.018518 \\
+weighted\_sum & 0.9992 & 82.987 & 279.612 & 0.005027 & 0.148493 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection*{References}
+\begin{thebibliography}{9}
+\bibitem{Saltelli2008}
+A. Saltelli, M. Ratto, T. Andres, F. Campolongo, J. Cariboni, D. Gatelli, M. Saisana, and S. Tarantola, \emph{Global Sensitivity Analysis: The Primer}. Wiley, 2008.
+
+\bibitem{Saltelli2010}
+A. Saltelli, P. Annoni, I. Azzini, F. Campolongo, M. Ratto, and S. Tarantola, \emph{Variance based sensitivity analysis of model output. Design and estimator for the total sensitivity index}. Computer Physics Communications, 181(2), 259--270, 2010.
+
+\bibitem{Spearman1904}
+C. Spearman, \emph{The proof and measurement of association between two things}. The American Journal of Psychology, 15(1), 72--101, 1904.
+\end{thebibliography}
