@@ -403,6 +403,8 @@ class Phase3LTRAnalyzer:
                 continue
             scored = _utility_formula_scores(game_row, feasible)
             features = _build_pair_features(game_row, scored)
+            affinity_distance = self._compute_feature_affinity_distance(game_row, feasible)
+            features["feature_affinity_distance"] = affinity_distance.values
             train_rows.append(features)
             train_targets.append(scored["utility_formula_score"].values)
 
@@ -414,6 +416,8 @@ class Phase3LTRAnalyzer:
                 continue
             scored = _utility_formula_scores(game_row, feasible)
             features = _build_pair_features(game_row, scored)
+            affinity_distance = self._compute_feature_affinity_distance(game_row, feasible)
+            features["feature_affinity_distance"] = affinity_distance.values
             test_rows.append(features)
             test_targets.append(scored["utility_formula_score"].values)
 
