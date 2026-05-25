@@ -155,14 +155,14 @@ class TopKRecommendationAnalyzer:
         if pd.notna(game_perf) and game_perf != 0:
             overprov_rel = overprov_abs / game_perf
         else:
-            overprov_rel = np.nan
+            overprov_rel = pd.Series(np.nan, index=candidate_df.index)
 
         if pd.notna(best_ppw) and best_ppw > 0:
             eff_regret_abs = best_ppw - candidate_df[PPW_COL]
             eff_regret_rel = eff_regret_abs / best_ppw
         else:
-            eff_regret_abs = np.nan
-            eff_regret_rel = np.nan
+            eff_regret_abs = pd.Series(np.nan, index=candidate_df.index)
+            eff_regret_rel = pd.Series(np.nan, index=candidate_df.index)
 
         return {
             "avg_tdp": candidate_df[TDP_USED_COL].mean(),
