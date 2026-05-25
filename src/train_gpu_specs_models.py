@@ -15,6 +15,7 @@ import json
 import numpy as np
 import pandas as pd
 import copy
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
@@ -24,16 +25,41 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
 RESULTS_OUT = "data/results"
+FIGURES_OUT = "figures"
 METRICS_OUT = "data/results/power_model_metrics.csv"
 PREDICTIONS_OUT = "data/results/gpu_power_predictions.csv"
 TDP_METRICS_OUT = "data/results/tdp_model_metrics.csv"
 PSU_METRICS_OUT = "data/results/psu_model_metrics.csv"
+PREDICTION_VECTORS_OUT = "data/vectors/gpu_power_vectors_including_missing_targets.csv"
 BEST_MODEL_SUMMARY_OUT = "data/results/best_power_model_summary.csv"
 
 def load_vectors():
     """load data"""
     return pd.read_csv("data/vectors/gpu_power_vectors.csv")
 
+def save_figs(train_losses, model_name, target_col):
+    """save training loss curve for the final trained model"""
+    Path(FIGURES_OUT).mkdir(parents=True, exist_ok=True)
+    plt.figure()
+    plt.plot(train_losses)
+    plt.xlabel("epoch")
+    plt.ylabel("training MSE loss")
+    plt.title(f"{model_name} {target_col} training loss")
+    plt.savefig(Path(FIGURES_OUT) / f"{model_name.lower().replace(' ', '_')}_{target_col}_train_loss.png")
+    plt.close()
+
+def save_residual(y_true, y_pred, model_name, target_col):
+    """save actual vs predicted scatter plot"""
+    Path(FIGURES_OUT).mkdir(parents=True, exist_ok=True)
+    output_path = Path(FIGURES_OUT) / f"{model_name.lower().replace(' ', '_')}_{target_col}_actual_vs_pred.png"
+    plt.figure()
+    plt.scatter(y_true, y_pred)
+    plt.plot([min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())], [min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())])
+    plt.xlabel(f"actual {target_col}")
+    plt.ylabel(f"predicted {target_col}")
+    plt.title(f"{model_name} {target_col} actual vs predicted")
+    plt.savefig(output_path)
+    plt.close()
 
 def split(df, target_col, features):
     """train test split"""
@@ -53,8 +79,11 @@ def evaluate(y_true, y_pred):
 
     return mae, mse, rsq
 
+def load_prediction_vectors():
+    """load vectors used only for final prediction output"""
+    return pd.read_csv(PREDICTION_VECTORS_OUT)
 
-def finetuning_with_hyperparams(model, params, X_train, X_val, y_train, y_val, X_test, y_test, df, features):
+def finetuning_with_hyperparams(model, params, X_train, X_val, y_train, y_val, X_test, y_test, df, pred_df, features):
     """ training for all imported models after we've decided on hyperparams """
     X_full = pd.concat([X_train, X_val], axis=0)
     y_full = pd.concat([y_train, y_val], axis=0)
@@ -64,24 +93,28 @@ def finetuning_with_hyperparams(model, params, X_train, X_val, y_train, y_val, X
     df_feat = temp[features]
     test_pred = tuned_model.predict(X_test)
     df_preds = tuned_model.predict(df_feat)
+    missing_feature_counts = pred_df[features].isna().sum()
+    print(missing_feature_counts[missing_feature_counts > 0])
+    pred_df_preds = tuned_model.predict(pred_df[features])
+
 
     test_mae, test_rmse, test_rsq = evaluate(y_test, test_pred)
 
-    return test_mae, test_rmse, test_rsq, df_preds
+    return test_mae, test_rmse, test_rsq, df_preds, pred_df_preds
 
 
-def lin_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def lin_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, pred_df, features):
     """train Linear Regression, note: doesnt need hyperparameter tuning"""
     model = LinearRegression()
     model.fit(X_train, y_train)
     val_pred = model.predict(X_val)
     val_mae = mean_absolute_error(y_val, val_pred)
-    test_mae, test_mse, test_rsq, df_preds = finetuning_with_hyperparams(LinearRegression, {}, X_train, X_val, y_train, y_val, X_test, y_test, df, features)
-    return ("Linear Regression", {}, val_mae, test_mae, test_mse, test_rsq, df_preds)
+    test_mae, test_mse, test_rsq, df_preds, pred_df_preds = finetuning_with_hyperparams(LinearRegression, {}, X_train, X_val, y_train, y_val, X_test, y_test, df, pred_df, features)
+    return ("Linear Regression", {}, val_mae, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
 
 
-def ridge_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def ridge_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, pred_df, features):
     """find the best hyperparams and train ridge regression"""
     alpha = 0
     best_score = 100000000000
@@ -96,11 +129,11 @@ def ridge_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
             best_score = val_mae
             alpha = a
 
-    test_mae, test_mse, test_rsq, df_preds = finetuning_with_hyperparams(Ridge, {"alpha": alpha}, X_train, X_val, y_train, y_val, X_test, y_test, df, features)
+    test_mae, test_mse, test_rsq, df_preds, pred_df_preds = finetuning_with_hyperparams(Ridge, {"alpha": alpha}, X_train, X_val, y_train, y_val, X_test, y_test, df, pred_df, features)
 
-    return ("Ridge Regression", {"alpha": alpha}, best_score, test_mae, test_mse, test_rsq, df_preds)
+    return ("Ridge Regression", {"alpha": alpha}, best_score, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
-def lasso_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def lasso_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, pred_df, features):
     """find the best hyperparams and train lasso regression"""
     alpha = 0
     best_score = 100000000000
@@ -115,11 +148,11 @@ def lasso_reg(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
             best_score = val_mae
             alpha = a
 
-    test_mae, test_mse, test_rsq, df_preds = finetuning_with_hyperparams(Lasso, {"alpha": alpha, "max_iter": 10000}, X_train, X_val, y_train, y_val, X_test, y_test, df, features)
+    test_mae, test_mse, test_rsq, df_preds, pred_df_preds = finetuning_with_hyperparams(Lasso, {"alpha": alpha, "max_iter": 10000}, X_train, X_val, y_train, y_val, X_test, y_test, df, pred_df, features)
 
-    return ("Lasso Regression", {"alpha": alpha, "max_iter": 10000}, best_score, test_mae, test_mse, test_rsq, df_preds)
+    return ("Lasso Regression", {"alpha": alpha, "max_iter": 10000}, best_score, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
-def random_forest(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def random_forest(X_train, y_train, X_val, y_val, X_test, y_test, df,pred_df, features):
     """find the best hyperparams and a random forest"""
     best_set = {}
     best_score = 100000000000
@@ -138,13 +171,13 @@ def random_forest(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
                         best_score = val_mae
                         best_set = params
 
-    test_mae, test_mse, test_rsq, df_preds = finetuning_with_hyperparams(RandomForestRegressor,best_set,  X_train, X_val, y_train, y_val, X_test, y_test, df, features)
+    test_mae, test_mse, test_rsq, df_preds, pred_df_preds = finetuning_with_hyperparams(RandomForestRegressor,best_set,  X_train, X_val, y_train, y_val, X_test, y_test, df, pred_df, features)
 
-    return ("Random Forest", best_set, best_score, test_mae, test_mse, test_rsq, df_preds)
+    return ("Random Forest", best_set, best_score, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
 
 
-def gradient_boosting(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def gradient_boosting(X_train, y_train, X_val, y_val, X_test, y_test, df, pred_df, features):
     """find the best hyperparams and a Gradient Boosting model"""
 
     best_set = {}
@@ -165,11 +198,11 @@ def gradient_boosting(X_train, y_train, X_val, y_val, X_test, y_test, df, featur
                         best_score = val_mae
                         best_set = params
 
-    test_mae, test_mse, test_rsq, df_preds = finetuning_with_hyperparams(GradientBoostingRegressor,best_set,  X_train, X_val, y_train, y_val, X_test, y_test, df, features)
-    return ("Gradient Boosting", best_set, best_score, test_mae, test_mse, test_rsq, df_preds)
+    test_mae, test_mse, test_rsq, df_preds, pred_df_preds = finetuning_with_hyperparams(GradientBoostingRegressor,best_set,  X_train, X_val, y_train, y_val, X_test, y_test, df,pred_df, features)
+    return ("Gradient Boosting", best_set, best_score, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
 
-def xgboost(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def xgboost(X_train, y_train, X_val, y_val, X_test, y_test, df, pred_df, features):
     """find the best hyperparams and a XGBoost model"""
     best_set = {}
     best_score = 100000000000
@@ -189,8 +222,8 @@ def xgboost(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
                             best_score = val_mae
                             best_set = params
 
-    test_mae, test_mse, test_rsq, df_preds = finetuning_with_hyperparams(XGBRegressor,best_set,  X_train, X_val, y_train, y_val, X_test, y_test, df, features)
-    return ("XGBoost", best_set, best_score, test_mae, test_mse, test_rsq, df_preds)
+    test_mae, test_mse, test_rsq, df_preds, pred_df_preds = finetuning_with_hyperparams(XGBRegressor,best_set,  X_train, X_val, y_train, y_val, X_test, y_test, df, pred_df, features)
+    return ("XGBoost", best_set, best_score, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
 class MLPModel(nn.Module):
     """MLP custom implementation (heavily inspired by ECE 228 HW 2)"""
@@ -227,7 +260,7 @@ class MLPModel(nn.Module):
 
         return y
     
-def mlp_once(X_train, y_train, X_val, y_val, hidden_layers, learning_rate, weight_decay, dropout, epochs=1000):
+def mlp_once(X_train, y_train, X_val, y_val, hidden_layers, learning_rate, weight_decay, dropout, epochs=1000, losses=False):
     """train one MLP once and return model and val MAE. Once again heavily inspired by ECE 228 HW 2"""
     X_train_t = torch.tensor(X_train.values, dtype=torch.float32)
     y_train_t = torch.tensor(y_train.values.reshape(-1, 1), dtype=torch.float32)
@@ -238,12 +271,15 @@ def mlp_once(X_train, y_train, X_val, y_val, hidden_layers, learning_rate, weigh
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam( model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
+    loss = []
     for i in range(0, epochs):
         model.train()
         optimizer.zero_grad()
 
         train_pred = model(X_train_t)
         train_loss = loss_fn(train_pred, y_train_t)
+        if losses:
+            loss.append(train_loss.item())
 
         train_loss.backward()
         optimizer.step()
@@ -253,6 +289,9 @@ def mlp_once(X_train, y_train, X_val, y_val, hidden_layers, learning_rate, weigh
         val_pred = model(X_val_t).numpy().ravel()
 
     val_mae = mean_absolute_error(y_val, val_pred)
+
+    if losses:
+        return model, val_mae, loss
 
     return model, val_mae
 
@@ -267,7 +306,7 @@ def predict_mlp(model, X):
     return preds
 
 
-def mlp(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
+def mlp(X_train, y_train, X_val, y_val, X_test, y_test, df, pred_df, features):
     """find the best hyperparams and train a MLP model"""
     best_set = {}
     best_score = 100000000000
@@ -283,34 +322,39 @@ def mlp(X_train, y_train, X_val, y_val, X_test, y_test, df, features):
                             best_score = val_mae
                             best_set = { "hidden_layers": hidden_layers,  "learning_rate": learning_rate, "weight_decay": weight_decay, "dropout": dropout, "epochs": epochs }
 
-    model, _ = mlp_once( pd.concat([X_train, X_val], axis=0), pd.concat([y_train, y_val], axis=0), X_test,  y_test, best_set["hidden_layers"], best_set["learning_rate"], best_set["weight_decay"], best_set["dropout"], best_set["epochs"])
+    model, _, t_loss = mlp_once( pd.concat([X_train, X_val], axis=0), pd.concat([y_train, y_val], axis=0), X_test,  y_test, best_set["hidden_layers"], best_set["learning_rate"], best_set["weight_decay"], best_set["dropout"], best_set["epochs"], losses=True)
+    save_figs(train_losses=t_loss,model_name="MLP",target_col=y_train.name)
     df_preds = predict_mlp(model, X_full)
+    pred_df_preds = predict_mlp(model, pred_df[features])
 
     test_pred = predict_mlp(model, X_test)
     test_mae, test_mse, test_rsq = evaluate(y_test, test_pred)
 
-    return ("MLP", best_set, best_score, test_mae, test_mse, test_rsq, df_preds)
+    return ("MLP", best_set, best_score, test_mae, test_mse, test_rsq, pred_df_preds, df_preds)
 
-def run_models_for_target(df, target_col, raw_features, standard_features):
+def run_models_for_target(df, prediction_df, target_col, raw_features, standard_features):
     """run all models for a target"""
     linear_models = [lin_reg, ridge_reg, lasso_reg, mlp]
     tree_models = [ random_forest, gradient_boosting, xgboost]
+    predictions = pd.DataFrame({"brand": prediction_df["brand"], "name": prediction_df["name"], "actual_tdp_w": prediction_df["tdp_w"],"actual_psu_w": prediction_df["psu_w"]})
 
     output = []
-    predictions = pd.DataFrame({  "brand": df["brand"], "name": df["name"],  "actual_tdp_w": df["tdp_w"],  "actual_psu_w": df["psu_w"] })
     for model in linear_models:
         X_train, X_val, X_test, y_train, y_val, y_test = split(df, target_col, standard_features)
-        model_name, params, val_mae, test_mae, test_rmse, test_rsq, df_preds = model(X_train, y_train, X_val, y_val,  X_test, y_test, df, standard_features )
+        model_name, params, val_mae, test_mae, test_rmse, test_rsq, prediction_df_p, df_preds = model(X_train, y_train, X_val, y_val,  X_test, y_test, df,prediction_df, standard_features )
         output.append({ "target": target_col, "model": model_name, "params": params, "val_mae": val_mae,  "test_mae": test_mae, "test_rmse": test_rmse, "test_r2": test_rsq})
         name = model_name.lower().replace(" ", "_")
-        predictions[f"pred_{target_col}_{name}"] = df_preds
+        predictions[f"pred_{target_col}_{name}"] = prediction_df_p
+        save_residual(y_true=df[target_col], y_pred=df_preds, model_name=model_name, target_col=target_col)
 
     for model in tree_models:
         X_train, X_val, X_test, y_train, y_val, y_test = split(  df, target_col, raw_features )
-        model_name, params, val_mae, test_mae, test_rmse, test_rsq, df_preds = model(X_train, y_train, X_val, y_val, X_test, y_test,  df, raw_features )
+        model_name, params, val_mae, test_mae, test_rmse, test_rsq, prediction_df_p, df_preds = model(X_train, y_train, X_val, y_val, X_test, y_test,  df, prediction_df,  raw_features )
         output.append({ "target": target_col, "model": model_name, "params": params, "val_mae": val_mae, "test_mae": test_mae, "test_rmse": test_rmse, "test_r2": test_rsq})
         name = model_name.lower().replace(" ", "_")
-        predictions[f"pred_{target_col}_{name}"] = df_preds
+        predictions[f"pred_{target_col}_{name}"] = prediction_df_p
+        save_residual(y_true=df[target_col],y_pred=df_preds, model_name=model_name, target_col=target_col)
+
 
     return output, predictions
 
@@ -321,9 +365,10 @@ def main():
     normal_cols = [ "process_nm", "tmus",  "rops", "texture_rate", "pixel_rate","direct_x", "memory_mb", "memory_speed_mhz",  "memory_bandwidth_gbs"]
     raw_features = normal_cols + memory_type_cols
     standard_features = [f"standard_{col}" for col in normal_cols] + memory_type_cols
+    prediction_df = load_prediction_vectors()
 
-    tdp_results, tdp_predictions = run_models_for_target(df,  "tdp_w",  raw_features, standard_features )
-    psu_results, psu_predictions = run_models_for_target(df, "psu_w", raw_features, standard_features)
+    tdp_results, tdp_predictions = run_models_for_target(df, prediction_df,  "tdp_w",  raw_features, standard_features )
+    psu_results, psu_predictions = run_models_for_target(df, prediction_df, "psu_w", raw_features, standard_features)
 
     all_results = tdp_results + psu_results
     metrics_df = pd.DataFrame(all_results)
