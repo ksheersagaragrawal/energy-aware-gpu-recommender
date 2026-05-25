@@ -496,22 +496,26 @@ def main() -> None:
         REPO_ROOT / "phase3_aggregate_ltr_topk_summary.csv",
         REPO_ROOT / "results" / "phase3_aggregate_ltr_topk_summary.csv",
         REPO_ROOT / "outputs" / "phase3_aggregate_ltr_topk_summary.csv",
+        REPO_ROOT / "phase3_outputs" / "phase3_aggregate_ltr_topk_summary.csv",
         REPO_ROOT / "data" / "processed" / "phase3_aggregate_ltr_topk_summary.csv",
     ]
 
     phase2_metrics_paths = [
         REPO_ROOT / "results" / "tables" / "phase2_model_regression_metrics.csv",
         REPO_ROOT / "phase2_model_regression_metrics.csv",
+        REPO_ROOT / "phase2_outputs" / "phase2_model_regression_metrics.csv",
     ]
 
     phase3_metrics_paths = [
         REPO_ROOT / "results" / "tables" / "phase3_ltr_model_metrics.csv",
         REPO_ROOT / "phase3_ltr_model_metrics.csv",
+        REPO_ROOT / "phase3_outputs" / "phase3_ltr_model_metrics.csv",
     ]
 
     phase3_feature_paths = [
         REPO_ROOT / "results" / "tables" / "phase3_ltr_feature_importance.csv",
         REPO_ROOT / "phase3_ltr_feature_importance.csv",
+        REPO_ROOT / "phase3_outputs" / "phase3_ltr_feature_importance.csv",
     ]
 
     phase3_summary = _load_csv_optional(phase3_paths)
