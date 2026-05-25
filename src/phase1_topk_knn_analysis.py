@@ -1,9 +1,11 @@
 """Phase 1: Top-k Recommendation vs KNN Feature-Affinity Retrieval.
 
 This module compares power-aware top-k recommendations against KNN-50 retrieval
-for each game. KNN50 represents feature-affinity retrieval. Power_Top5 represents
-power-aware recommendation. The overlap analysis checks alignment between the two.
-KNN50_PPW_Top5 is a reranked KNN baseline using power-aware PPW.
+for each game. KNN50_All represents raw feature-affinity retrieval from the full
+GPU database. KNN50_Feasible represents feature-affinity retrieval after enforcing
+game feasibility. KNN50_Feasible_PPW_Top5 tests whether feature-affinity retrieval
+plus PPW reranking can match direct Power_Top5. Power_Top5 represents direct
+power-aware recommendation from the feasible set.
 """
 
 from __future__ import annotations
@@ -90,11 +92,25 @@ class TopKRecommendationAnalyzer:
         return ranked.head(k).copy()
 
     def get_knn_candidates(self, game_row: pd.Series, n_neighbors: int = 50) -> pd.DataFrame:
+        return self._knn_candidates_from_pool(self.gpu_df, game_row, n_neighbors)
+
+    def get_knn_candidates_feasible(self, game_row: pd.Series, n_neighbors: int = 50) -> pd.DataFrame:
+        feasible = self.get_feasible_gpus(game_row)
+        if feasible.empty:
+            return feasible
+        return self._knn_candidates_from_pool(feasible, game_row, n_neighbors)
+
+    def _knn_candidates_from_pool(
+        self,
+        gpu_pool: pd.DataFrame,
+        game_row: pd.Series,
+        n_neighbors: int,
+    ) -> pd.DataFrame:
         game_vec = []
         gpu_matrix = []
 
         for _, (game_col, gpu_col) in KNN_FEATURE_MAP.items():
-            gpu_vals = self.gpu_df[gpu_col].values.astype(float)
+            gpu_vals = gpu_pool[gpu_col].values.astype(float)
             game_val = float(game_row.get(game_col) or 0)
 
             combined = np.concatenate([gpu_vals[~np.isnan(gpu_vals)], [game_val]])
@@ -119,16 +135,22 @@ class TopKRecommendationAnalyzer:
         gpu_matrix = np.column_stack(gpu_matrix)
         game_vec = np.array(game_vec, dtype=float).reshape(1, -1)
 
-        nn = NearestNeighbors(n_neighbors=min(n_neighbors, len(self.gpu_df)), metric="euclidean")
+        nn = NearestNeighbors(n_neighbors=min(n_neighbors, len(gpu_pool)), metric="euclidean")
         nn.fit(gpu_matrix)
         distances, indices = nn.kneighbors(game_vec)
 
-        result = self.gpu_df.iloc[indices[0]].copy()
+        result = gpu_pool.iloc[indices[0]].copy()
         result["distance"] = distances[0]
         return result
 
     def get_knn_ppw_topk(self, game_row: pd.Series, n_neighbors: int = 50, k: int = 5) -> pd.DataFrame:
         knn = self.get_knn_candidates(game_row, n_neighbors=n_neighbors)
+        if knn.empty:
+            return knn
+        return knn.sort_values(PPW_COL, ascending=False).head(k).copy()
+
+    def get_knn_feasible_ppw_topk(self, game_row: pd.Series, n_neighbors: int = 50, k: int = 5) -> pd.DataFrame:
+        knn = self.get_knn_candidates_feasible(game_row, n_neighbors=n_neighbors)
         if knn.empty:
             return knn
         return knn.sort_values(PPW_COL, ascending=False).head(k).copy()
@@ -150,6 +172,8 @@ class TopKRecommendationAnalyzer:
 
         game_perf = game_row.get("perf_score")
         selected_perf = candidate_df["perf_score"]
+        # Overprovisioning is a proxy: game and GPU perf scores are normalized
+        # on different datasets, so treat comparisons as relative indicators.
         overprov_abs = selected_perf - game_perf
 
         if pd.notna(game_perf) and game_perf != 0:
@@ -198,38 +222,70 @@ class TopKRecommendationAnalyzer:
             best_ppw = feasible[PPW_COL].max()
 
             power_topk = self.get_power_topk(game_row, k=self.config.k_top)
-            knn = self.get_knn_candidates(game_row, n_neighbors=self.config.knn_k)
-            knn_ppw_topk = self.get_knn_ppw_topk(game_row, n_neighbors=self.config.knn_k, k=self.config.k_top)
+            knn_all = self.get_knn_candidates(game_row, n_neighbors=self.config.knn_k)
+            knn_feasible = self.get_knn_candidates_feasible(game_row, n_neighbors=self.config.knn_k)
+            knn_all_ppw_topk = self.get_knn_ppw_topk(game_row, n_neighbors=self.config.knn_k, k=self.config.k_top)
+            knn_feasible_ppw_topk = self.get_knn_feasible_ppw_topk(
+                game_row, n_neighbors=self.config.knn_k, k=self.config.k_top
+            )
 
-            overlap_count, overlap_rate = self.compute_overlap(power_topk, knn)
+            overlap_all_count, overlap_all_rate = self.compute_overlap(power_topk, knn_all)
+            overlap_feasible_count, overlap_feasible_rate = self.compute_overlap(power_topk, knn_feasible)
+            overlap_feasible_ppw_count, overlap_feasible_ppw_rate = self.compute_overlap(
+                power_topk, knn_feasible_ppw_topk
+            )
 
             power_metrics = self.compute_candidate_metrics(power_topk, game_row, best_ppw)
-            knn_metrics = self.compute_candidate_metrics(knn, game_row, best_ppw)
-            knn_ppw_metrics = self.compute_candidate_metrics(knn_ppw_topk, game_row, best_ppw)
+            knn_all_metrics = self.compute_candidate_metrics(knn_all, game_row, best_ppw)
+            knn_all_ppw_metrics = self.compute_candidate_metrics(knn_all_ppw_topk, game_row, best_ppw)
+            knn_feasible_metrics = self.compute_candidate_metrics(knn_feasible, game_row, best_ppw)
+            knn_feasible_ppw_metrics = self.compute_candidate_metrics(knn_feasible_ppw_topk, game_row, best_ppw)
 
             return {
                 "game_name": game_name,
                 "actual_power_topk_count": len(power_topk),
-                "actual_knn_count": len(knn),
-                "overlap_count": overlap_count,
-                "overlap_rate": overlap_rate,
+                "actual_knn_all_count": len(knn_all),
+                "actual_knn_feasible_count": len(knn_feasible),
+                "overlap_all_count": overlap_all_count,
+                "overlap_all_rate": overlap_all_rate,
+                "overlap_feasible_count": overlap_feasible_count,
+                "overlap_feasible_rate": overlap_feasible_rate,
+                "overlap_feasible_ppw_count": overlap_feasible_ppw_count,
+                "overlap_feasible_ppw_rate": overlap_feasible_ppw_rate,
                 "power_top5_gpu_names": ", ".join(power_topk["name"].tolist()),
-                "knn50_ppw_top5_gpu_names": ", ".join(knn_ppw_topk["name"].tolist()),
+                "knn50_all_ppw_top5_gpu_names": ", ".join(knn_all_ppw_topk["name"].tolist()),
+                "knn50_feasible_ppw_top5_gpu_names": ", ".join(knn_feasible_ppw_topk["name"].tolist()),
+                "knn50_ppw_top5_gpu_names": ", ".join(knn_all_ppw_topk["name"].tolist()),
                 "power_top5_avg_tdp": power_metrics["avg_tdp"],
                 "power_top5_avg_psu": power_metrics["avg_psu"],
                 "power_top5_avg_ppw": power_metrics["avg_ppw"],
                 "power_top5_avg_overprovisioning": power_metrics["avg_overprov"],
                 "power_top5_avg_efficiency_regret": power_metrics["avg_eff_regret"],
-                "knn50_avg_tdp": knn_metrics["avg_tdp"],
-                "knn50_avg_psu": knn_metrics["avg_psu"],
-                "knn50_avg_ppw": knn_metrics["avg_ppw"],
-                "knn50_avg_overprovisioning": knn_metrics["avg_overprov"],
-                "knn50_avg_efficiency_regret": knn_metrics["avg_eff_regret"],
-                "knn50_ppw_top5_avg_tdp": knn_ppw_metrics["avg_tdp"],
-                "knn50_ppw_top5_avg_psu": knn_ppw_metrics["avg_psu"],
-                "knn50_ppw_top5_avg_ppw": knn_ppw_metrics["avg_ppw"],
-                "knn50_ppw_top5_avg_overprovisioning": knn_ppw_metrics["avg_overprov"],
-                "knn50_ppw_top5_avg_efficiency_regret": knn_ppw_metrics["avg_eff_regret"],
+                "knn50_all_avg_tdp": knn_all_metrics["avg_tdp"],
+                "knn50_all_avg_psu": knn_all_metrics["avg_psu"],
+                "knn50_all_avg_ppw": knn_all_metrics["avg_ppw"],
+                "knn50_all_avg_overprovisioning": knn_all_metrics["avg_overprov"],
+                "knn50_all_avg_efficiency_regret": knn_all_metrics["avg_eff_regret"],
+                "knn50_avg_tdp": knn_all_metrics["avg_tdp"],
+                "knn50_avg_psu": knn_all_metrics["avg_psu"],
+                "knn50_avg_ppw": knn_all_metrics["avg_ppw"],
+                "knn50_avg_overprovisioning": knn_all_metrics["avg_overprov"],
+                "knn50_avg_efficiency_regret": knn_all_metrics["avg_eff_regret"],
+                "knn50_feasible_avg_tdp": knn_feasible_metrics["avg_tdp"],
+                "knn50_feasible_avg_psu": knn_feasible_metrics["avg_psu"],
+                "knn50_feasible_avg_ppw": knn_feasible_metrics["avg_ppw"],
+                "knn50_feasible_avg_overprovisioning": knn_feasible_metrics["avg_overprov"],
+                "knn50_feasible_avg_efficiency_regret": knn_feasible_metrics["avg_eff_regret"],
+                "knn50_feasible_ppw_top5_avg_tdp": knn_feasible_ppw_metrics["avg_tdp"],
+                "knn50_feasible_ppw_top5_avg_psu": knn_feasible_ppw_metrics["avg_psu"],
+                "knn50_feasible_ppw_top5_avg_ppw": knn_feasible_ppw_metrics["avg_ppw"],
+                "knn50_feasible_ppw_top5_avg_overprovisioning": knn_feasible_ppw_metrics["avg_overprov"],
+                "knn50_feasible_ppw_top5_avg_efficiency_regret": knn_feasible_ppw_metrics["avg_eff_regret"],
+                "knn50_ppw_top5_avg_tdp": knn_all_ppw_metrics["avg_tdp"],
+                "knn50_ppw_top5_avg_psu": knn_all_ppw_metrics["avg_psu"],
+                "knn50_ppw_top5_avg_ppw": knn_all_ppw_metrics["avg_ppw"],
+                "knn50_ppw_top5_avg_overprovisioning": knn_all_ppw_metrics["avg_overprov"],
+                "knn50_ppw_top5_avg_efficiency_regret": knn_all_ppw_metrics["avg_eff_regret"],
             }, None
 
         if self.config.num_workers > 1:
@@ -274,25 +330,33 @@ class TopKRecommendationAnalyzer:
             "power_top5_avg_overprovisioning",
             "power_top5_avg_efficiency_regret",
         ]
-        knn_cols = [
-            "knn50_avg_tdp",
-            "knn50_avg_psu",
-            "knn50_avg_ppw",
-            "knn50_avg_overprovisioning",
-            "knn50_avg_efficiency_regret",
+        knn_all_cols = [
+            "knn50_all_avg_tdp",
+            "knn50_all_avg_psu",
+            "knn50_all_avg_ppw",
+            "knn50_all_avg_overprovisioning",
+            "knn50_all_avg_efficiency_regret",
         ]
-        knn_ppw_cols = [
-            "knn50_ppw_top5_avg_tdp",
-            "knn50_ppw_top5_avg_psu",
-            "knn50_ppw_top5_avg_ppw",
-            "knn50_ppw_top5_avg_overprovisioning",
-            "knn50_ppw_top5_avg_efficiency_regret",
+        knn_feasible_cols = [
+            "knn50_feasible_avg_tdp",
+            "knn50_feasible_avg_psu",
+            "knn50_feasible_avg_ppw",
+            "knn50_feasible_avg_overprovisioning",
+            "knn50_feasible_avg_efficiency_regret",
+        ]
+        knn_feasible_ppw_cols = [
+            "knn50_feasible_ppw_top5_avg_tdp",
+            "knn50_feasible_ppw_top5_avg_psu",
+            "knn50_feasible_ppw_top5_avg_ppw",
+            "knn50_feasible_ppw_top5_avg_overprovisioning",
+            "knn50_feasible_ppw_top5_avg_efficiency_regret",
         ]
 
         summary_rows = []
 
         power_unique = per_game_df["power_top5_gpu_names"].str.split(", ").explode().nunique()
-        knn_ppw_unique = per_game_df["knn50_ppw_top5_gpu_names"].str.split(", ").explode().nunique()
+        knn_all_ppw_unique = per_game_df["knn50_all_ppw_top5_gpu_names"].str.split(", ").explode().nunique()
+        knn_feasible_ppw_unique = per_game_df["knn50_feasible_ppw_top5_gpu_names"].str.split(", ").explode().nunique()
 
         knn_unique = np.nan
         try:
@@ -313,32 +377,46 @@ class TopKRecommendationAnalyzer:
             "avg_efficiency_regret": per_game_df[power_cols[4]].mean(),
             "unique_gpus": power_unique,
             "top1_share": _top1_share(per_game_df["power_top5_gpu_names"]),
-            "avg_overlap_with_knn50": per_game_df["overlap_rate"].mean(),
+            "avg_overlap_with_knn50": per_game_df["overlap_all_rate"].mean(),
         })
 
         summary_rows.append({
-            "method": "KNN50",
-            "avg_tdp": per_game_df[knn_cols[0]].mean(),
-            "avg_psu": per_game_df[knn_cols[1]].mean(),
-            "avg_ppw": per_game_df[knn_cols[2]].mean(),
-            "avg_overprovisioning": per_game_df[knn_cols[3]].mean(),
-            "avg_efficiency_regret": per_game_df[knn_cols[4]].mean(),
+            "method": "KNN50_All",
+            "avg_tdp": per_game_df[knn_all_cols[0]].mean(),
+            "avg_psu": per_game_df[knn_all_cols[1]].mean(),
+            "avg_ppw": per_game_df[knn_all_cols[2]].mean(),
+            "avg_overprovisioning": per_game_df[knn_all_cols[3]].mean(),
+            "avg_efficiency_regret": per_game_df[knn_all_cols[4]].mean(),
             "unique_gpus": knn_unique,
             "top1_share": np.nan,
             "avg_overlap_with_knn50": np.nan,
         })
 
         summary_rows.append({
-            "method": "KNN50_PPW_Top5",
-            "avg_tdp": per_game_df[knn_ppw_cols[0]].mean(),
-            "avg_psu": per_game_df[knn_ppw_cols[1]].mean(),
-            "avg_ppw": per_game_df[knn_ppw_cols[2]].mean(),
-            "avg_overprovisioning": per_game_df[knn_ppw_cols[3]].mean(),
-            "avg_efficiency_regret": per_game_df[knn_ppw_cols[4]].mean(),
-            "unique_gpus": knn_ppw_unique,
-            "top1_share": _top1_share(per_game_df["knn50_ppw_top5_gpu_names"]),
+            "method": "KNN50_Feasible",
+            "avg_tdp": per_game_df[knn_feasible_cols[0]].mean(),
+            "avg_psu": per_game_df[knn_feasible_cols[1]].mean(),
+            "avg_ppw": per_game_df[knn_feasible_cols[2]].mean(),
+            "avg_overprovisioning": per_game_df[knn_feasible_cols[3]].mean(),
+            "avg_efficiency_regret": per_game_df[knn_feasible_cols[4]].mean(),
+            "unique_gpus": np.nan,
+            "top1_share": np.nan,
             "avg_overlap_with_knn50": np.nan,
         })
+
+        summary_rows.append({
+            "method": "KNN50_Feasible_PPW_Top5",
+            "avg_tdp": per_game_df[knn_feasible_ppw_cols[0]].mean(),
+            "avg_psu": per_game_df[knn_feasible_ppw_cols[1]].mean(),
+            "avg_ppw": per_game_df[knn_feasible_ppw_cols[2]].mean(),
+            "avg_overprovisioning": per_game_df[knn_feasible_ppw_cols[3]].mean(),
+            "avg_efficiency_regret": per_game_df[knn_feasible_ppw_cols[4]].mean(),
+            "unique_gpus": knn_feasible_ppw_unique,
+            "top1_share": _top1_share(per_game_df["knn50_feasible_ppw_top5_gpu_names"]),
+            "avg_overlap_with_knn50": np.nan,
+        })
+
+        _ = knn_all_ppw_unique
 
         return pd.DataFrame(summary_rows)
 
@@ -353,23 +431,115 @@ class TopKRecommendationAnalyzer:
         if not skipped_df.empty:
             skipped_df.to_csv(out_dir / "phase1_skipped_games.csv", index=False)
 
-        self.plot_overlap_histogram(per_game_df, figs_dir)
-        self.plot_metric_heatmap(summary_df, figs_dir)
-        self.plot_representative_scatter(per_game_df, figs_dir)
+        self.plot_overlap_histogram(per_game_df, figs_dir, "overlap_histogram_power_top5_vs_knn50.png")
+        self.plot_metric_heatmap(summary_df, figs_dir, "metric_heatmap_topk_vs_knn.png")
+        self.plot_representative_scatter(per_game_df, figs_dir, "representative_game_scatter_ppw_vs_overprov.png")
 
-    def plot_overlap_histogram(self, per_game_df: pd.DataFrame, figs_dir: Path) -> None:
-        counts = per_game_df["overlap_count"].value_counts().reindex(range(0, 6), fill_value=0)
+        per_game_df.to_csv(out_dir / "phase1_fair_per_game_topk_knn_analysis.csv", index=False)
+        summary_df.to_csv(out_dir / "phase1_fair_aggregate_topk_knn_summary.csv", index=False)
+        self.plot_overlap_histogram(per_game_df, figs_dir, "phase1_fair_overlap_histogram.png", fair=True)
+        self.plot_metric_heatmap(summary_df, figs_dir, "phase1_fair_metric_heatmap.png", fair=True)
+        self.plot_representative_scatter(per_game_df, figs_dir, "phase1_fair_representative_scatter.png", fair=True)
+
+    def run_diagnostics(self, per_game_df: pd.DataFrame, output_dir: Path, sample_size: int = 100) -> None:
+        """Print concise logic checks and save a small diagnostic CSV."""
+        self._log("diagnostics: starting")
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        gpu_id_dupes = self.gpu_df[GPU_ID_COL].duplicated().sum()
+        self._log(f"diagnostics: GPU_ID duplicates = {gpu_id_dupes}")
+
+        # 1. Check whether KNN candidates are drawn from feasible pool
+        sample_df = self.games_df.sample(n=min(sample_size, len(self.games_df)), random_state=42)
+        knn_feasible_rates = []
+        for _, game_row in sample_df.iterrows():
+            feasible = self.get_feasible_gpus(game_row)
+            knn = self.get_knn_candidates(game_row, n_neighbors=self.config.knn_k)
+            if knn.empty:
+                continue
+            feasible_ids = set(feasible[GPU_ID_COL].tolist())
+            knn_ids = knn[GPU_ID_COL].tolist()
+            overlap = sum(1 for gid in knn_ids if gid in feasible_ids)
+            knn_feasible_rates.append(overlap / max(len(knn_ids), 1))
+
+        if knn_feasible_rates:
+            self._log(
+                "diagnostics: KNN-in-feasible rate mean="
+                f"{np.mean(knn_feasible_rates):.3f}, median={np.median(knn_feasible_rates):.3f}"
+            )
+        else:
+            self._log("diagnostics: KNN-in-feasible rate not computed (empty sample)")
+
+        # 4/5. Feature alignment checks
+        missing_game = [gcol for gcol, _ in KNN_FEATURE_MAP.values() if gcol not in self.games_df.columns]
+        missing_gpu = [gcol for _, gcol in KNN_FEATURE_MAP.values() if gcol not in self.gpu_df.columns]
+        self._log(f"diagnostics: missing KNN game cols = {missing_game}")
+        self._log(f"diagnostics: missing KNN gpu cols = {missing_gpu}")
+
+        # 7. Overprovisioning sign context
+        game_perf = self.games_df["perf_score"].dropna()
+        gpu_perf = self.gpu_df["perf_score"].dropna()
+        self._log(
+            "diagnostics: perf_score ranges game(min/median/max)="
+            f"{game_perf.min():.4f}/{game_perf.median():.4f}/{game_perf.max():.4f}"
+        )
+        self._log(
+            "diagnostics: perf_score ranges gpu(min/median/max)="
+            f"{gpu_perf.min():.4f}/{gpu_perf.median():.4f}/{gpu_perf.max():.4f}"
+        )
+
+        # 8. Efficiency regret baseline check
+        self._log("diagnostics: efficiency regret uses best_ppw from feasible set")
+
+        # 9. Power_Top5 frequency
+        top5_names = per_game_df["power_top5_gpu_names"].dropna().str.split(", ").explode()
+        top20 = top5_names.value_counts().head(20).reset_index()
+        top20.columns = ["gpu_name", "count"]
+        top20.to_csv(output_dir / "phase1_power_top5_top20.csv", index=False)
+        self._log("diagnostics: saved top-20 Power_Top5 GPU frequency CSV")
+        self._log("diagnostics: complete")
+
+    def plot_overlap_histogram(
+        self,
+        per_game_df: pd.DataFrame,
+        figs_dir: Path,
+        filename: str,
+        fair: bool = False,
+    ) -> None:
+        if fair:
+            overlap_cols = [
+                ("overlap_all_count", "KNN50_All"),
+                ("overlap_feasible_count", "KNN50_Feasible"),
+                ("overlap_feasible_ppw_count", "KNN50_Feasible_PPW_Top5"),
+            ]
+        else:
+            overlap_cols = [("overlap_all_count", "KNN50_All")]
+
+        counts_map = {
+            label: per_game_df[col].value_counts().reindex(range(0, 6), fill_value=0)
+            for col, label in overlap_cols
+        }
 
         plt.figure(figsize=(8, 5))
-        plt.bar(counts.index.astype(str), counts.values, color="#4C72B0")
-        plt.title("Overlap between Power-aware Top-5 and KNN-50")
+        x = np.arange(0, 6)
+        width = 0.25 if fair else 0.6
+
+        for idx, (label, counts) in enumerate(counts_map.items()):
+            offset = (idx - (len(counts_map) - 1) / 2) * width
+            plt.bar(x + offset, counts.values, width=width, label=label)
+
+        plt.title("Overlap between Power-aware Top-5 and KNN variants")
         plt.xlabel("Overlap count")
         plt.ylabel("Number of games")
+        plt.xticks(x)
+        if fair:
+            plt.legend()
         plt.tight_layout()
-        plt.savefig(figs_dir / "overlap_histogram_power_top5_vs_knn50.png", dpi=160)
+        plt.savefig(figs_dir / filename, dpi=160)
         plt.close()
 
-    def plot_metric_heatmap(self, summary_df: pd.DataFrame, figs_dir: Path) -> None:
+    def plot_metric_heatmap(self, summary_df: pd.DataFrame, figs_dir: Path, filename: str, fair: bool = False) -> None:
         metrics = [
             "avg_tdp",
             "avg_psu",
@@ -379,6 +549,9 @@ class TopKRecommendationAnalyzer:
         ]
 
         data = summary_df.set_index("method")[metrics].copy()
+        if fair:
+            order = ["KNN50_All", "KNN50_Feasible", "KNN50_Feasible_PPW_Top5", "Power_Top5"]
+            data = data.reindex(order)
 
         # Normalize so higher is better. For metrics where lower is better,
         # invert the min-max scaling to keep darker = better in the heatmap.
@@ -403,10 +576,16 @@ class TopKRecommendationAnalyzer:
         plt.colorbar(label="Normalized score (higher is better)")
         plt.title("Top-k vs KNN aggregate metric comparison")
         plt.tight_layout()
-        plt.savefig(figs_dir / "metric_heatmap_topk_vs_knn.png", dpi=160)
+        plt.savefig(figs_dir / filename, dpi=160)
         plt.close()
 
-    def plot_representative_scatter(self, per_game_df: pd.DataFrame, figs_dir: Path) -> None:
+    def plot_representative_scatter(
+        self,
+        per_game_df: pd.DataFrame,
+        figs_dir: Path,
+        filename: str,
+        fair: bool = False,
+    ) -> None:
         if per_game_df.empty:
             return
 
@@ -419,7 +598,10 @@ class TopKRecommendationAnalyzer:
 
         game_name = row["game_name"]
         game_row = self.games_df[self.games_df["name"] == game_name].iloc[0]
-        knn = self.get_knn_candidates(game_row, n_neighbors=self.config.knn_k)
+        if fair:
+            knn = self.get_knn_candidates_feasible(game_row, n_neighbors=self.config.knn_k)
+        else:
+            knn = self.get_knn_candidates(game_row, n_neighbors=self.config.knn_k)
         topk = self.get_power_topk(game_row, k=self.config.k_top)
 
         if knn.empty or topk.empty:
@@ -458,7 +640,7 @@ class TopKRecommendationAnalyzer:
         plt.title("Representative game: PPW vs Overprovisioning")
         plt.legend()
         plt.tight_layout()
-        plt.savefig(figs_dir / "representative_game_scatter_ppw_vs_overprov.png", dpi=160)
+        plt.savefig(figs_dir / filename, dpi=160)
         plt.close()
 
 
@@ -526,6 +708,7 @@ def main() -> None:
     parser.add_argument("--output-dir", default="phase1_outputs", help="Output directory")
     parser.add_argument("--num-workers", type=int, default=1, help="Parallel workers (default: 1)")
     parser.add_argument("--log-every", type=int, default=200, help="Progress log interval")
+    parser.add_argument("--diagnostics", action="store_true", help="Print logic diagnostics and save summary CSV")
     args = parser.parse_args()
 
     games_df = pd.read_csv(GAME_VECTORS[args.mode])
@@ -545,6 +728,8 @@ def main() -> None:
     analyzer = TopKRecommendationAnalyzer(games_df, gpu_df, config)
     per_game_df, summary_df, skipped_df = analyzer.run()
     analyzer.save_outputs(per_game_df, summary_df, skipped_df)
+    if args.diagnostics:
+        analyzer.run_diagnostics(per_game_df, Path(config.output_dir))
 
 
 if __name__ == "__main__":
