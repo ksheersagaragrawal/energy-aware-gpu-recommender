@@ -589,12 +589,13 @@ class TopKRecommendationAnalyzer:
         if per_game_df.empty:
             return
 
-        candidates = per_game_df[(per_game_df["overlap_count"] >= 2) & (per_game_df["overlap_count"] <= 4)]
+        overlap_col = "overlap_feasible_count" if fair else "overlap_all_count"
+        candidates = per_game_df[(per_game_df[overlap_col] >= 2) & (per_game_df[overlap_col] <= 4)]
         if not candidates.empty:
             row = candidates.iloc[0]
         else:
-            med = per_game_df["overlap_count"].median()
-            row = per_game_df.iloc[(per_game_df["overlap_count"] - med).abs().argsort().iloc[0]]
+            med = per_game_df[overlap_col].median()
+            row = per_game_df.iloc[(per_game_df[overlap_col] - med).abs().argsort().iloc[0]]
 
         game_name = row["game_name"]
         game_row = self.games_df[self.games_df["name"] == game_name].iloc[0]
