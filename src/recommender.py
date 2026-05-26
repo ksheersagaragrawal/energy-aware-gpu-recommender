@@ -30,28 +30,21 @@ GPU_VECTORS = "data/vectors/gpu_power_vectors.csv"
 
 SOFT_THRESHOLD = 0.80
 
-# Raw feature columns for KNN — (game_col, gpu_col) pairs
-# Normalized jointly at query time so both datasets share the same scale
-KNN_FEATURE_MAP = {
-    "texture_rate": ("texture_rate",  "texture_rate"),
-    "pixel_rate":   ("pixel_rate",    "pixel_rate"),
-    "bandwidth":    ("bandwidth",     "memory_bandwidth_gbs"),
-    "tmus":         ("tmus",          "tmus"),
-    "rops":         ("rops",          "rops"),
-    "memory_clock": ("memory_clock",  "memory_speed_mhz"),
-    "boost_clock":  ("boost_clock",   "boost_clock"),
-}
+# Shared canonical column names between GPU and game datasets — no translation
+# needed because both pipelines emit the same names.
+KNN_FEATURES = [
+    "texture_rate",
+    "pixel_rate",
+    "memory_bandwidth_gbs",
+    "tmus",
+    "rops",
+    "memory_speed_mhz",
+    "boost_clock_mhz",
+]
+
+SOFT_FILTER_COLS = ["texture_rate", "pixel_rate", "memory_bandwidth_gbs", "tmus", "rops"]
 
 EPSILON = 1e-6
-
-# game column -> GPU column (for soft filter)
-SOFT_FILTER_MAP = {
-    "texture_rate": "texture_rate",
-    "pixel_rate":   "pixel_rate",
-    "bandwidth":    "memory_bandwidth_gbs",
-    "tmus":         "tmus",
-    "rops":         "rops",
-}
 
 DISPLAY_COLS       = ["brand", "name", "memory_mb", "direct_x", "tdp_w", "perf_score", "perf_per_watt"]
 DISPLAY_COLS_KNN   = ["brand", "name", "memory_mb", "direct_x", "tdp_w", "perf_score", "distance"]
@@ -97,13 +90,13 @@ def soft_filter(gpus: pd.DataFrame, game: pd.Series, threshold: float) -> pd.Dat
     mask = pd.Series(True, index=gpus.index)
 
     applied = []
-    for game_col, gpu_col in SOFT_FILTER_MAP.items():
-        req = game.get(game_col)
+    for col in SOFT_FILTER_COLS:
+        req = game.get(col)
         if pd.isna(req) or req <= 0:
             continue
         min_val = req * threshold
-        mask &= gpus[gpu_col] >= min_val
-        applied.append(f"{gpu_col}>={min_val:.1f}")
+        mask &= gpus[col] >= min_val
+        applied.append(f"{col}>={min_val:.1f}")
 
     result = gpus[mask].copy()
     print(f"[soft_filter]  {mask.sum():4d} / {len(gpus)} GPUs pass  "
@@ -139,9 +132,9 @@ def recommend_knn(game: pd.Series, gpus: pd.DataFrame, k: int) -> pd.DataFrame:
     game_vec = []
     gpu_matrix = []
 
-    for feat, (game_col, gpu_col) in KNN_FEATURE_MAP.items():
-        gpu_vals = gpus[gpu_col].values.astype(float)
-        game_val = float(game.get(game_col) or 0)
+    for col in KNN_FEATURES:
+        gpu_vals = gpus[col].values.astype(float)
+        game_val = float(game.get(col) or 0)
 
         # Shared min/max across both datasets for this feature
         combined = np.concatenate([gpu_vals[~np.isnan(gpu_vals)], [game_val]])
