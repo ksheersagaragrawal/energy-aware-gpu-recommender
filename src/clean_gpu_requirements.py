@@ -9,6 +9,7 @@ Command: python src/clean_gpu_requirements.py
 import pandas as pd
 import numpy as np
 import regex as reg
+import argparse
 
 RAW_PATH = "data/raw/gpu_specs.csv"
 OUTPUT_PATH = "data/cleaned/gpu_specs_cleaned.csv"
@@ -19,7 +20,7 @@ def load_data():
     df = pd.read_csv(RAW_PATH)
     return df
 
-def clean(df):
+def clean(df, include_missing_target=False):
     """ does the cleaning via calling in helper functions
     """
     df = pd.read_csv("data/raw/gpu_specs.csv")
@@ -46,8 +47,10 @@ def clean(df):
     df["tdp_w"] = df["tdp_w"].apply(process_helper)
 
     
-
-    subset_cols = [ "tmus", "rops", "texture_rate", "pixel_rate","direct_x", "memory_mb", "memory_bandwidth_gbs","tdp_w","psu_w"]
+    if include_missing_target:
+        subset_cols = [ "process_nm","tmus", "rops", "texture_rate", "pixel_rate","direct_x", "memory_mb", "memory_bandwidth_gbs"]
+    else:
+        subset_cols = [ "process_nm","tmus", "rops", "texture_rate", "pixel_rate","direct_x", "memory_mb", "memory_bandwidth_gbs","tdp_w","psu_w"]
     df = df.dropna(subset=subset_cols)
     
     return df
@@ -157,15 +160,18 @@ def units_to_GPix(value):
         return number
     return number
 
-def main():
+def main(output_path=OUTPUT_PATH, include_missing_target=False):
     df = load_data()
-    df = clean(df)
-    df.to_csv(OUTPUT_PATH, index=False)
+    df = clean(df, include_missing_target=include_missing_target)
+    df.to_csv(output_path, index=False)
     print(f"Cleaned samples: {df.shape}")
-    print(f"\nSaved to {OUTPUT_PATH}")
+    print(f"\nSaved to {output_path}")
     
 
 
 if __name__ == "__main__":
-    main()
-
+    parser = argparse.ArgumentParser(description="params neeeded if you want to do a nonstandard run")
+    parser.add_argument( "--output-path", default=OUTPUT_PATH, help=f"where to save the cleaned dataset. default: {OUTPUT_PATH}",)
+    parser.add_argument( "--include-missing-target", action="store_true", help="Keep rows even that are missing the target columns",)
+    args = parser.parse_args()
+    main( output_path=args.output_path,include_missing_target=args.include_missing_target)

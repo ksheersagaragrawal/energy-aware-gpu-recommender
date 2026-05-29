@@ -17,6 +17,7 @@ from sklearn.preprocessing import OneHotEncoder
 CLEANED_PATH = "data/cleaned/gpu_specs_cleaned.csv"
 RAW_PATH = "data/raw/gpu_specs.csv"
 OUT_DIR = "data/vectors/gpu_power_vectors.csv"
+PREDICTIONS_PATH = "data/results/gpu_power_predictions.csv"
 
 # Maps perf_score feature names to actual GPU vector column names
 GPU_PERF_COL_MAP = {
@@ -31,6 +32,28 @@ GPU_PERF_COL_MAP = {
 
 EPSILON = 1e-6
 
+def add_predicted_power_cols(df, tdp_col=None, psu_col=None):
+    """add selected predicted TDP and PSU columns to the vector dataset"""
+    if tdp_col is None and psu_col is None:
+        return df
+
+    predictions_df = pd.read_csv(PREDICTIONS_PATH)
+
+    merge_cols = ["brand", "name"]
+    pred_cols = merge_cols.copy()
+
+    if tdp_col is not None:
+        pred_cols.append(tdp_col)
+
+    if psu_col is not None:
+        pred_cols.append(psu_col)
+
+
+    predictions_df = predictions_df[pred_cols]
+
+    df = df.merge(predictions_df, on=merge_cols, how="left")
+
+    return df
 
 def stand_cols(df):
     """standardizes values for a certain set of columns """
@@ -118,8 +141,9 @@ def build_vectors(df, include_missing_target = False):
     return df
 
 
-def main(input_path=CLEANED_PATH,  output_path=OUT_DIR, include_missing_target=False):
+def main(input_path=CLEANED_PATH,  output_path=OUT_DIR, include_missing_target=False, tdp_col=None,psu_col=None):
     df = load_data(input_path=input_path)
+    df = add_predicted_power_cols(df=df, tdp_col=tdp_col, psu_col=psu_col)
     df = build_vectors( df, include_missing_target=include_missing_target)
     df.to_csv(output_path, index=False)
     print(f"\nSaved GPU power vectors to {output_path}")
@@ -130,7 +154,9 @@ if __name__ == "__main__":
     parser.add_argument( "--input-path", default=CLEANED_PATH, help=f"cleaned gpu specs CSV to load, default: {CLEANED_PATH}")
     parser.add_argument(  "--output-path", default=OUT_DIR, help=f"where to save the vector dataset. default: {OUT_DIR}" )
     parser.add_argument( "--include-missing-target", action="store_true", help="if our dataset includes missing tdp_w, psu_w, or both")
+    parser.add_argument("--tdp-col", default=None, help="Predicted TDP column to add")
+    parser.add_argument("--psu-col", default=None, help="Predicted PSU column to add")  
     args = parser.parse_args()
-    main( input_path=args.input_path, output_path=args.output_path, include_missing_target=args.include_missing_target)
+    main( input_path=args.input_path, output_path=args.output_path, include_missing_target=args.include_missing_target, tdp_col=args.tdp_col,psu_col=args.psu_col)
 
 
