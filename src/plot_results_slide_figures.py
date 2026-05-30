@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -35,15 +35,15 @@ PASTEL_COLORS = [
 
 def _configure_style() -> None:
     plt.rcParams.update({
-        "font.size": 12,
+        "font.size": 9.5,
         "font.weight": "bold",
         "axes.labelweight": "bold",
         "axes.titleweight": "bold",
-        "axes.titlesize": 13,
-        "axes.labelsize": 12,
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
-        "legend.fontsize": 10.5,
+        "axes.titlesize": 12,
+        "axes.labelsize": 10.5,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "legend.fontsize": 8.8,
     })
 
 
@@ -85,7 +85,7 @@ def plot_power_quality(metrics: pd.DataFrame, output_path: Path) -> None:
     maes = [float(tdp_best["test_mae"]), float(psu_best["test_mae"])]
     r2s = [float(tdp_best["test_r2"]), float(psu_best["test_r2"])]
 
-    fig, ax = plt.subplots(figsize=(4.1, 3.1))
+    fig, ax = plt.subplots(figsize=(4.2, 3.0))
     bars = ax.bar(labels, maes, color=[PASTEL_COLORS[0], PASTEL_COLORS[1]], width=0.62)
     ax.set_title("Best Power Model Accuracy")
     ax.set_ylabel("Test MAE (W)")
@@ -93,17 +93,19 @@ def plot_power_quality(metrics: pd.DataFrame, output_path: Path) -> None:
     ax.set_axisbelow(True)
 
     for bar, mae, r2 in zip(bars, maes, r2s):
+        y = max(0.15, bar.get_height() - 0.6)
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height(),
+            y,
             f"MAE {mae:.1f}\nR2 {r2:.3f}",
             ha="center",
             va="bottom",
-            fontsize=10.5,
+            fontsize=8.8,
             fontweight="bold",
         )
+    ax.set_ylim(0, max(maes) * 1.08)
 
-    fig.tight_layout()
+    fig.tight_layout(pad=0.9)
     _save(fig, output_path)
 
 
@@ -119,33 +121,44 @@ def plot_uncertainty_quality(metrics: pd.DataFrame, output_path: Path) -> None:
         .head(5)
     )
 
+    rename = {
+        "Bayesian Ridge": "Bayes",
+        "Gaussian Process": "GP",
+        "Quantile XGBoost": "QXGB",
+        "QXGB_Q0.05": "QXGB-0.05",
+        "QXGB_Q0.50": "QXGB-0.50",
+        "QXGB_Q0.95": "QXGB-0.95",
+    }
+    agg["model_label"] = agg["model"].map(rename).fillna(agg["model"])
+
     x = np.arange(len(agg))
     width = 0.38
 
-    fig, ax1 = plt.subplots(figsize=(4.2, 3.1))
+    fig, ax1 = plt.subplots(figsize=(4.2, 3.0))
     ax2 = ax1.twinx()
 
     b1 = ax1.bar(x - width / 2, agg["coverage_90"], width, color=PASTEL_COLORS[2], label="Coverage@90")
     b2 = ax2.bar(x + width / 2, agg["mean_interval_width"], width, color=PASTEL_COLORS[3], label="Interval Width")
 
     ax1.set_title("Uncertainty Quality")
-    ax1.set_ylabel("Empirical Coverage (target=0.90)")
+    ax1.set_ylabel("Coverage@90")
     ax2.set_ylabel("Mean Interval Width (W)")
     ax1.set_xticks(x)
-    ax1.set_xticklabels(agg["model"], rotation=22, ha="right", fontweight="bold")
+    ax1.set_xticklabels(agg["model_label"], rotation=0, ha="center", fontweight="bold")
     ax1.grid(axis="y", alpha=0.22)
     ax1.axhline(0.90, color="#666666", linestyle="--", linewidth=1.2)
     ax1.set_axisbelow(True)
+    ax1.set_ylim(0.0, min(1.02, float(agg["coverage_90"].max() * 1.15)))
 
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
-    ax1.legend(h1 + h2, l1 + l2, frameon=False, loc="upper right")
+    ax1.legend(h1 + h2, l1 + l2, frameon=False, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.98))
 
     for bar in b1:
         ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{bar.get_height():.2f}",
-                 ha="center", va="bottom", fontsize=9.5, fontweight="bold")
+                 ha="center", va="bottom", fontsize=8.2, fontweight="bold")
 
-    fig.tight_layout()
+    fig.tight_layout(pad=0.9)
     _save(fig, output_path)
 
 
@@ -188,36 +201,48 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_path: Path) -> No
     order = _method_order(df)
     df["method"] = pd.Categorical(df["method"], categories=order, ordered=True)
     df = df.sort_values("method")
+    method_labels = {
+        "LTR-Utility-Top5": "LTR",
+        "ML-Utility-Top5": "ML-U",
+        "UtilityFormula-Top5": "Formula",
+        "Power-Top5": "Power",
+        "KNN50-Feasible-PPW-Top5": "KNN+PPW",
+        "KNN50-Feasible": "KNN",
+        "PassMark G3D": "PassMark",
+        "Proxy perf_score": "Proxy",
+    }
+    labels = [method_labels.get(m, m) for m in df["method"].astype(str)]
 
     x = np.arange(len(df))
-    fig, ax1 = plt.subplots(figsize=(4.3, 3.1))
+    fig, ax1 = plt.subplots(figsize=(4.5, 3.1))
     ax1.bar(x, df["avg_ppw"], color=PASTEL_COLORS[4], width=0.62)
     ax1.set_title("Recommendation Outcomes")
     ax1.set_ylabel("Average PPW")
     ax1.set_xticks(x)
-    ax1.set_xticklabels(df["method"], rotation=25, ha="right", fontweight="bold")
+    ax1.set_xticklabels(labels, rotation=0, ha="center", fontweight="bold")
     ax1.grid(axis="y", alpha=0.24)
     ax1.set_axisbelow(True)
 
     if has_diversity:
         ax2 = ax1.twinx()
         ax2.plot(x, df["top1_share"], marker="o", color=PASTEL_COLORS[0], linewidth=2.0, label="Top-1 Share")
-        ax2.set_ylabel("Top-1 Share (lower better)")
+        ax2.set_ylabel("Top-1 Share")
         ax2.set_ylim(0, min(1.0, float(np.nanmax(df["top1_share"]) * 1.15)))
-        ax2.legend(frameon=False, loc="upper right")
+        ax2.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, 0.98))
 
     best_idx = int(np.nanargmax(df["avg_ppw"].values))
+    y_offset = float(df["avg_ppw"].max()) * 0.03
     ax1.text(
         x[best_idx],
-        df["avg_ppw"].iloc[best_idx],
+        df["avg_ppw"].iloc[best_idx] + y_offset,
         "Best PPW",
         ha="center",
         va="bottom",
-        fontsize=9.5,
+        fontsize=8.5,
         fontweight="bold",
     )
 
-    fig.tight_layout()
+    fig.tight_layout(pad=0.9)
     _save(fig, output_path)
 
 
