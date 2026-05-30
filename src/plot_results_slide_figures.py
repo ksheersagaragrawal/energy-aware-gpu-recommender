@@ -1,16 +1,16 @@
-"""Generate clean, slide-ready result figures.
+"""Generate high-resolution, slide-ready result figures (single-slide friendly).
 
 Figures:
-1) Power-model MAE across models (TDP vs PSU).
-2) Feature-set ablation impact (test MAE) for a selected model.
-3) Observability gap diagram (conceptual positioning).
+1) Power model quality (best TDP/PSU models, MAE with R2 annotations).
+2) Uncertainty quality (90% interval coverage and interval width).
+3) Recommendation outcomes (efficiency + diversity).
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -19,31 +19,31 @@ import matplotlib.pyplot as plt
 
 DEFAULT_TDP_METRICS = "data/results/tdp_model_metrics.csv"
 DEFAULT_PSU_METRICS = "data/results/psu_model_metrics.csv"
-DEFAULT_ABLATION_SUMMARY = "data/results/ablation_power_model_summary.csv"
+DEFAULT_METHOD_SUMMARY = "data/results/passmark_method_comparison_summary.csv"
+DEFAULT_METHOD_SUMMARY_FALLBACK = "data/results/passmark_recommender_summary.csv"
 DEFAULT_OUTPUT_DIR = "results/plots/slide_figures"
-DEFAULT_MODEL_FOR_ABLATION = "XGBoost"
 
 PASTEL_COLORS = [
-    "#AEC6CF",  # pastel blue
-    "#FFB347",  # pastel orange
-    "#B39EB5",  # pastel purple
-    "#77DD77",  # pastel green
-    "#FF6961",  # pastel red
-    "#FDFD96",  # pastel yellow
+    "#9FB9C7",  # muted pastel blue
+    "#D8B79A",  # muted pastel sand
+    "#B9A9C9",  # muted pastel lavender
+    "#9DBEA8",  # muted pastel green
+    "#D6A6A6",  # muted pastel rose
+    "#CFC9A9",  # muted pastel khaki
 ]
 
 
 def _configure_style() -> None:
     plt.rcParams.update({
-        "font.size": 11,
+        "font.size": 12,
         "font.weight": "bold",
         "axes.labelweight": "bold",
         "axes.titleweight": "bold",
-        "axes.titlesize": 12,
-        "axes.labelsize": 11,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
+        "axes.titlesize": 13,
+        "axes.labelsize": 12,
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 11,
+        "legend.fontsize": 10.5,
     })
 
 
@@ -51,116 +51,183 @@ def _ensure_output_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def load_model_metrics(tdp_path: str, psu_path: str) -> pd.DataFrame:
+def _save(fig: plt.Figure, output_path: Path) -> None:
+    # High resolution for slide compression robustness.
+    fig.savefig(output_path, dpi=900, bbox_inches="tight", pad_inches=0.06)
+    plt.close(fig)
+
+
+def load_power_metrics(tdp_path: str, psu_path: str) -> pd.DataFrame:
     tdp_df = pd.read_csv(tdp_path)
     psu_df = pd.read_csv(psu_path)
-    tdp_df = tdp_df.assign(target="tdp_w")
-    psu_df = psu_df.assign(target="psu_w")
+    if "target" not in tdp_df.columns:
+        tdp_df = tdp_df.assign(target="tdp_w")
+    if "target" not in psu_df.columns:
+        psu_df = psu_df.assign(target="psu_w")
     return pd.concat([tdp_df, psu_df], ignore_index=True)
 
 
-def plot_power_model_mae(metrics: pd.DataFrame, output_path: Path) -> None:
-    order = [
-        "Linear Regression",
-        "Ridge Regression",
-        "Lasso Regression",
-        "Random Forest",
-        "Gradient Boosting",
-        "XGBoost",
-        "MLP",
+def _best_row_for_target(metrics: pd.DataFrame, target: str) -> pd.Series:
+    sub = metrics[metrics["target"] == target].copy()
+    if sub.empty:
+        raise ValueError(f"No rows found for target '{target}'")
+    return sub.sort_values("test_mae", ascending=True).iloc[0]
+
+
+def plot_power_quality(metrics: pd.DataFrame, output_path: Path) -> None:
+    tdp_best = _best_row_for_target(metrics, "tdp_w")
+    psu_best = _best_row_for_target(metrics, "psu_w")
+
+    labels = [
+        f"TDP\n{tdp_best['model']}",
+        f"PSU\n{psu_best['model']}",
     ]
+    maes = [float(tdp_best["test_mae"]), float(psu_best["test_mae"])]
+    r2s = [float(tdp_best["test_r2"]), float(psu_best["test_r2"])]
 
-    tdp = metrics[metrics["target"] == "tdp_w"].set_index("model")
-    psu = metrics[metrics["target"] == "psu_w"].set_index("model")
+    fig, ax = plt.subplots(figsize=(4.1, 3.1))
+    bars = ax.bar(labels, maes, color=[PASTEL_COLORS[0], PASTEL_COLORS[1]], width=0.62)
+    ax.set_title("Best Power Model Accuracy")
+    ax.set_ylabel("Test MAE (W)")
+    ax.grid(axis="y", alpha=0.25)
+    ax.set_axisbelow(True)
 
-    tdp = tdp.loc[[m for m in order if m in tdp.index]]
-    psu = psu.loc[[m for m in order if m in psu.index]]
+    for bar, mae, r2 in zip(bars, maes, r2s):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            f"MAE {mae:.1f}\nR2 {r2:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=10.5,
+            fontweight="bold",
+        )
 
-    models = tdp.index.tolist()
-    x = np.arange(len(models))
+    fig.tight_layout()
+    _save(fig, output_path)
+
+
+def plot_uncertainty_quality(metrics: pd.DataFrame, output_path: Path) -> None:
+    uq = metrics.dropna(subset=["coverage_90", "mean_interval_width"]).copy()
+    if uq.empty:
+        raise ValueError("No UQ rows with coverage/interval-width found in metrics.")
+
+    agg = (
+        uq.groupby("model", as_index=False)[["coverage_90", "mean_interval_width"]]
+        .mean()
+        .sort_values("coverage_90", ascending=False)
+        .head(5)
+    )
+
+    x = np.arange(len(agg))
     width = 0.38
 
-    fig, ax = plt.subplots(figsize=(5.5, 3.5), dpi=600)
-    ax.bar(x - width / 2, tdp["test_mae"], width, label="TDP MAE", color=PASTEL_COLORS[0])
-    ax.bar(x + width / 2, psu["test_mae"], width, label="PSU MAE", color=PASTEL_COLORS[1])
+    fig, ax1 = plt.subplots(figsize=(4.2, 3.1))
+    ax2 = ax1.twinx()
 
-    ax.set_title("Power-model accuracy across models")
-    ax.set_ylabel("Test MAE (W)")
-    ax.set_xticks(x)
-    ax.set_xticklabels(models, rotation=30, ha="right", fontweight="bold")
-    ax.legend(frameon=False)
-    ax.grid(axis="y", alpha=0.2)
+    b1 = ax1.bar(x - width / 2, agg["coverage_90"], width, color=PASTEL_COLORS[2], label="Coverage@90")
+    b2 = ax2.bar(x + width / 2, agg["mean_interval_width"], width, color=PASTEL_COLORS[3], label="Interval Width")
 
-    fig.tight_layout()
-    fig.savefig(output_path)
-    plt.close(fig)
+    ax1.set_title("Uncertainty Quality")
+    ax1.set_ylabel("Empirical Coverage (target=0.90)")
+    ax2.set_ylabel("Mean Interval Width (W)")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(agg["model"], rotation=22, ha="right", fontweight="bold")
+    ax1.grid(axis="y", alpha=0.22)
+    ax1.axhline(0.90, color="#666666", linestyle="--", linewidth=1.2)
+    ax1.set_axisbelow(True)
 
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax1.legend(h1 + h2, l1 + l2, frameon=False, loc="upper right")
 
-def plot_ablation_feature_sets(
-    ablation_summary: pd.DataFrame,
-    output_path: Path,
-    model_name: str,
-) -> None:
-    subset = ablation_summary[ablation_summary["model"] == model_name].copy()
-    if subset.empty:
-        raise ValueError(f"No ablation rows found for model '{model_name}'.")
-
-    feature_order = ["Full", "Clocks-only", "Minimal", "Core-only", "Memory-only"]
-    targets = ["tdp_w", "psu_w"]
-
-    fig, axes = plt.subplots(1, 2, figsize=(6.4, 3.2), dpi=600, sharey=False)
-    for idx, target in enumerate(targets):
-        ax = axes[idx]
-        data = subset[subset["target"] == target].set_index("feature_set")
-        data = data.loc[[f for f in feature_order if f in data.index]]
-
-        x = np.arange(len(data.index))
-        ax.plot(
-            x,
-            data["test_mae"],
-            marker="o",
-            linewidth=2.0,
-            color=PASTEL_COLORS[2 + idx],
-        )
-        ax.set_title(f"{model_name} ablation: {target}")
-        ax.set_ylabel("Test MAE (W)")
-        ax.set_xticks(x)
-        ax.set_xticklabels(data.index, rotation=25, ha="right", fontweight="bold")
-        ax.grid(axis="y", alpha=0.2)
+    for bar in b1:
+        ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{bar.get_height():.2f}",
+                 ha="center", va="bottom", fontsize=9.5, fontweight="bold")
 
     fig.tight_layout()
-    fig.savefig(output_path)
-    plt.close(fig)
+    _save(fig, output_path)
 
 
-def plot_observability_gap(output_path: Path) -> None:
-    fig, ax = plt.subplots(figsize=(5.0, 2.2), dpi=600)
+def _method_order(df: pd.DataFrame) -> List[str]:
+    preferred = [
+        "LTR-Utility-Top5",
+        "ML-Utility-Top5",
+        "UtilityFormula-Top5",
+        "Power-Top5",
+        "KNN50-Feasible-PPW-Top5",
+        "KNN50-Feasible",
+        "PassMark G3D",
+        "Proxy perf_score",
+    ]
+    present = set(df["method"].astype(str))
+    out = [m for m in preferred if m in present]
+    leftovers = [m for m in df["method"].astype(str).tolist() if m not in out]
+    return out + leftovers
 
-    ax.hlines(0, 0, 1, color="#CCCCCC", linewidth=3)
-    ax.scatter([0.15], [0], s=140, color=PASTEL_COLORS[0], label="Our method")
-    ax.scatter([0.8, 0.9, 0.95], [0, 0, 0], s=110, color=PASTEL_COLORS[3], label="Runtime baselines")
 
-    ax.text(0.15, 0.08, "Static specs\n(pre-deployment)", ha="center", fontweight="bold")
-    ax.text(0.9, 0.08, "Runtime counters\n/profiling", ha="center", fontweight="bold")
+def load_method_summary(primary_path: str, fallback_path: str) -> pd.DataFrame:
+    primary = Path(primary_path)
+    fallback = Path(fallback_path)
+    if primary.exists():
+        return pd.read_csv(primary)
+    if fallback.exists():
+        return pd.read_csv(fallback)
+    raise FileNotFoundError(f"Neither method summary file exists: {primary} or {fallback}")
 
-    ax.set_xlim(-0.05, 1.05)
-    ax.set_ylim(-0.2, 0.3)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_title("Observability gap vs prior work")
+
+def plot_recommender_outcomes(summary_df: pd.DataFrame, output_path: Path) -> None:
+    df = summary_df.copy()
+    if "avg_ppw" not in df.columns:
+        if "avg_score_per_watt" in df.columns:
+            df["avg_ppw"] = df["avg_score_per_watt"]
+        else:
+            raise ValueError("No avg_ppw/avg_score_per_watt column in method summary.")
+
+    has_diversity = "top1_share" in df.columns
+    order = _method_order(df)
+    df["method"] = pd.Categorical(df["method"], categories=order, ordered=True)
+    df = df.sort_values("method")
+
+    x = np.arange(len(df))
+    fig, ax1 = plt.subplots(figsize=(4.3, 3.1))
+    ax1.bar(x, df["avg_ppw"], color=PASTEL_COLORS[4], width=0.62)
+    ax1.set_title("Recommendation Outcomes")
+    ax1.set_ylabel("Average PPW")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(df["method"], rotation=25, ha="right", fontweight="bold")
+    ax1.grid(axis="y", alpha=0.24)
+    ax1.set_axisbelow(True)
+
+    if has_diversity:
+        ax2 = ax1.twinx()
+        ax2.plot(x, df["top1_share"], marker="o", color=PASTEL_COLORS[0], linewidth=2.0, label="Top-1 Share")
+        ax2.set_ylabel("Top-1 Share (lower better)")
+        ax2.set_ylim(0, min(1.0, float(np.nanmax(df["top1_share"]) * 1.15)))
+        ax2.legend(frameon=False, loc="upper right")
+
+    best_idx = int(np.nanargmax(df["avg_ppw"].values))
+    ax1.text(
+        x[best_idx],
+        df["avg_ppw"].iloc[best_idx],
+        "Best PPW",
+        ha="center",
+        va="bottom",
+        fontsize=9.5,
+        fontweight="bold",
+    )
 
     fig.tight_layout()
-    fig.savefig(output_path)
-    plt.close(fig)
+    _save(fig, output_path)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate slide-ready result figures.")
+    parser = argparse.ArgumentParser(description="Generate high-resolution slide result figures.")
     parser.add_argument("--tdp-metrics", default=DEFAULT_TDP_METRICS)
     parser.add_argument("--psu-metrics", default=DEFAULT_PSU_METRICS)
-    parser.add_argument("--ablation-summary", default=DEFAULT_ABLATION_SUMMARY)
+    parser.add_argument("--method-summary", default=DEFAULT_METHOD_SUMMARY)
+    parser.add_argument("--method-summary-fallback", default=DEFAULT_METHOD_SUMMARY_FALLBACK)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--ablation-model", default=DEFAULT_MODEL_FOR_ABLATION)
     args = parser.parse_args()
 
     _configure_style()
@@ -168,21 +235,17 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     _ensure_output_dir(output_dir)
 
-    metrics = load_model_metrics(args.tdp_metrics, args.psu_metrics)
-    ablation_summary = pd.read_csv(args.ablation_summary)
+    power_metrics = load_power_metrics(args.tdp_metrics, args.psu_metrics)
+    method_summary = load_method_summary(args.method_summary, args.method_summary_fallback)
 
-    plot_power_model_mae(metrics, output_dir / "figure_power_model_mae.png")
-    plot_ablation_feature_sets(
-        ablation_summary,
-        output_dir / "figure_ablation_feature_sets.png",
-        model_name=args.ablation_model,
-    )
-    plot_observability_gap(output_dir / "figure_observability_gap.png")
+    plot_power_quality(power_metrics, output_dir / "figure_power_model_quality.png")
+    plot_uncertainty_quality(power_metrics, output_dir / "figure_uncertainty_quality.png")
+    plot_recommender_outcomes(method_summary, output_dir / "figure_recommender_outcomes.png")
 
     print("Saved figures:")
-    print(f"  {output_dir / 'figure_power_model_mae.png'}")
-    print(f"  {output_dir / 'figure_ablation_feature_sets.png'}")
-    print(f"  {output_dir / 'figure_observability_gap.png'}")
+    print(f"  {output_dir / 'figure_power_model_quality.png'}")
+    print(f"  {output_dir / 'figure_uncertainty_quality.png'}")
+    print(f"  {output_dir / 'figure_recommender_outcomes.png'}")
 
 
 if __name__ == "__main__":
