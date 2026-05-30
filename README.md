@@ -139,3 +139,166 @@ This project does not claim to predict exact FPS or runtime gaming latency.
 The performance score is a static hardware-based proxy.
 
 The goal is to build a simple and interpretable energy-aware GPU recommender using game requirements and GPU specifications.
+
+---
+
+## ML Recommender
+
+An ML-based recommendation method has been added on top of the existing pipeline. Instead of ranking GPUs using the hand-crafted geometric mean performance score, it uses an **XGBoost regression model** trained on real benchmark data to predict GPU performance.
+
+### New Dataset: PassMark Benchmarks
+
+- **Source:** VideoCardBenchmark.net (PassMark Software) — scraped May 2026
+- **File:** `data/raw/passmark_benchmarks.csv`
+- **Size:** 901 GPUs with real measured benchmark scores
+- **Scores:** G3D Mark, DX9 FPS, DX10 FPS, DX11 FPS, DX12 FPS, GPU Compute
+
+The G3D Mark scores are real measurements submitted by users running PassMark's PerformanceTest software. They are independently measured — not derived from hardware specs — which makes them valid as training labels.
+
+### XGBoost Model
+
+**Task:** Regression — predict G3D Mark score from GPU hardware specs
+
+**Training data:** 1,027 GPUs (PassMark benchmarks joined with GPU specs), split 80/20
+
+#### Input Features (X)
+
+| Feature | Description | Unit |
+|---|---|---|
+| `pixel_rate` | Pixels rendered per second | GPixel/s |
+| `texture_rate` | Textures rendered per second | GTex/s |
+| `tmus` | Texture Mapping Units | count |
+| `rops` | Render Output Units | count |
+| `process_nm` | Manufacturing process node size | nm |
+| `memory_mb` | VRAM size | MB |
+| `memory_speed_mhz` | Memory clock speed | MHz |
+| `memory_bandwidth_gbs` | Memory bandwidth | GB/s |
+| `direct_x` | DirectX version supported | version |
+| `tdp_w` | Thermal Design Power | watts |
+| `mem_gddr5`, `mem_gddr6`, `mem_hbm2`, ... | Memory type one-hot encoded | 16 binary flags |
+
+**Total: 26 features** (10 continuous + 16 one-hot memory type flags)
+
+#### Output (y)
+
+| Output | Description | Range in dataset |
+|---|---|---|
+| `G3D Mark` | PassMark overall GPU gaming benchmark score | 1 → 41,587 |
+
+#### Model Performance
+
+| Split | MAE | RMSE | R² |
+|---|---|---|---|
+| Train (821 GPUs) | 221.8 | 716.8 | 0.992 |
+| Test (206 GPUs) | 721.7 | 1,699.3 | 0.958 |
+
+#### Top Feature Importances
+
+| Feature | Importance |
+|---|---|
+| `pixel_rate` | 43.1% |
+| `process_nm` | 12.0% |
+| `texture_rate` | 10.1% |
+| `mem_gddr5` | 6.3% |
+| `mem_hbm2` | 4.8% |
+
+`pixel_rate` is the most important feature — rendering pixels is the core gaming workload.
+
+### Full Recommendation Flow (ML Method)
+
+```
+User inputs: game name (e.g. "Cyberpunk 2077")
+                        |
+                        v
+         Look up game in game_vectors_min.csv
+         (7,292 games with hardware requirement vectors)
+                        |
+                        v
+              Extract game requirements:
+              VRAM, DirectX, texture rate, pixel rate,
+              memory bandwidth, TMUs, ROPs
+                        |
+                        v
+         ┌──── HARD FILTER (must pass both) ────┐
+         │  GPU VRAM    ≥ game VRAM requirement  │
+         │  GPU DirectX ≥ game DirectX req       │
+         └───────────────────────────────────────┘
+                        |
+                        v
+         ┌──── SOFT FILTER (must meet ≥ alpha%) ───┐
+         │  GPU texture rate  ≥ alpha% of game req  │
+         │  GPU pixel rate    ≥ alpha% of game req  │
+         │  GPU bandwidth     ≥ alpha% of game req  │
+         │  GPU TMUs          ≥ alpha% of game req  │
+         │  GPU ROPs          ≥ alpha% of game req  │
+         └───────────────────────────────────────┘
+                        |
+                        v
+         For each surviving GPU:
+         Feed GPU hardware specs → XGBoost model
+         → predicted G3D Mark score
+                        |
+                        v
+         Compute: predicted_G3D / TDP
+                        |
+                        v
+         Sort descending → return top-k GPUs
+```
+
+> The game requirements are used **only for filtering**. They are never fed into the XGBoost model. The model only sees GPU hardware specs.
+
+### Scripts
+
+| Script | Purpose |
+|---|---|
+| `src/scrape_passmark.py` | Scrapes G3D Mark + DX FPS scores from VideoCardBenchmark.net |
+| `src/build_benchmark_dataset.py` | Joins PassMark data with GPU specs → training dataset |
+| `src/train_ml_recommender.py` | Trains XGBoost model and saves to `models/gpu_performance_model.pkl` |
+
+### How to Run the ML Recommender
+
+**Step 1: Scrape PassMark data** (takes ~12 min, saves incrementally)
+```bash
+python src/scrape_passmark.py
+```
+
+**Step 2: Build training dataset**
+```bash
+python src/build_benchmark_dataset.py
+```
+
+**Step 3: Train the model**
+```bash
+python src/train_ml_recommender.py
+```
+
+**Step 4: Run recommendations**
+```bash
+python src/recommender.py --game "GAME NAME" --method ml [options]
+```
+
+#### Arguments
+
+| Argument | Required | Default | Options | Description |
+|---|---|---|---|---|
+| `--game` | Yes | — | any string | Game name, partial match supported |
+| `--method` | No | `top_k` | `top_k`, `knn`, `ml` | Ranking method |
+| `--k` | No | `5` | any int | Number of GPUs to return |
+| `--mode` | No | `min` | `min`, `recom` | Use minimum or recommended game requirements |
+| `--threshold` | No | `0.80` | 0.0 – 1.0 | Soft filter strictness (used with `top_k` and `ml`) |
+
+#### Examples
+
+```bash
+# ML recommender — top 5 most power-efficient GPUs for Cyberpunk 2077
+python src/recommender.py --game "Cyberpunk 2077" --method ml --k 5
+
+# Compare against rule-based method
+python src/recommender.py --game "Cyberpunk 2077" --method top_k --k 5
+
+# Use recommended requirements, return top 10
+python src/recommender.py --game "Cyberpunk 2077" --method ml --mode recom --k 10
+
+# Stricter soft filter — GPU must meet 90% of game requirements
+python src/recommender.py --game "Cyberpunk 2077" --method ml --threshold 0.9
+```
