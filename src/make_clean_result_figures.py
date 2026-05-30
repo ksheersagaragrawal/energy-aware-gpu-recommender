@@ -29,13 +29,20 @@ DEFAULT_METHOD_SUMMARY = "data/results/passmark_method_comparison_summary.csv"
 DEFAULT_METHOD_SUMMARY_FALLBACK = "data/results/passmark_recommender_summary.csv"
 DEFAULT_OUTPUT_DIR = "results/plots/clean_figures"
 
+PALETTE = {
+    "primary": "#9DB7D5",
+    "secondary": "#B8D8C4",
+    "accent": "#E6C8A8",
+    "muted": "#CFCFEA",
+}
+
 
 def configure_style(mode: str) -> None:
     """Apply readable sizing. DPI controls sharpness, not readable font size."""
     if mode == "slide":
-        base, title, label, tick, legend = 13, 16, 14, 12, 11
+        base, title, label, tick, legend = 7, 9, 8, 7, 7
     else:
-        base, title, label, tick, legend = 9, 10, 9, 8, 8
+        base, title, label, tick, legend = 8, 9, 8, 7, 7
 
     plt.rcParams.update(
         {
@@ -128,7 +135,7 @@ def plot_power_quality(metrics: pd.DataFrame, output_stem: Path, mode: str) -> N
 
     fig, ax = plt.subplots(figsize=figure_size(mode, "power"), layout="constrained")
     x = np.arange(len(labels))
-    bars = ax.bar(x, maes, width=0.52)
+    bars = ax.bar(x, maes, width=0.52, color=[PALETTE["primary"], PALETTE["secondary"]])
 
     ax.set_title("Best Power Prediction Models")
     ax.set_ylabel("Test MAE (W) ↓")
@@ -141,7 +148,7 @@ def plot_power_quality(metrics: pd.DataFrame, output_stem: Path, mode: str) -> N
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             mae + float(maes.max()) * 0.035,
-            f"{mae:.1f} W\n$R^2$ = {r2:.3f}",
+            f"{mae:.1f} W\n$R^2$={r2:.2f}",
             ha="center",
             va="bottom",
         )
@@ -196,14 +203,14 @@ def plot_uncertainty_quality(
     widths = agg["mean_interval_width"].to_numpy(dtype=float)
     model_labels = agg["model_label"].tolist()
 
-    cov_bars = ax_cov.barh(y, coverage)
-    ax_cov.axvline(0.90, linestyle="--", linewidth=1.0, label="Nominal = 0.90")
+    cov_bars = ax_cov.barh(y, coverage, color=PALETTE["primary"])
+    ax_cov.axvline(0.90, linestyle="--", linewidth=1.0, color=PALETTE["accent"], label="Nominal=0.90")
     ax_cov.set_xlabel("Empirical coverage")
     ax_cov.set_yticks(y, model_labels)
     ax_cov.set_xlim(0, 1.05)
     ax_cov.xaxis.grid(True, linewidth=0.7, alpha=0.25)
     ax_cov.set_axisbelow(True)
-    ax_cov.legend(loc="lower right", frameon=False)
+    ax_cov.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), frameon=False)
 
     for bar, value in zip(cov_bars, coverage):
         ax_cov.text(
@@ -214,7 +221,7 @@ def plot_uncertainty_quality(
             ha="left",
         )
 
-    width_bars = ax_width.barh(y, widths)
+    width_bars = ax_width.barh(y, widths, color=PALETTE["secondary"])
     ax_width.set_xlabel("Mean interval width (W) ↓")
     ax_width.xaxis.grid(True, linewidth=0.7, alpha=0.25)
     ax_width.set_axisbelow(True)
@@ -312,7 +319,7 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_stem: Path, mode:
         ax_div = None
 
     fig.suptitle("Recommendation Outcomes", fontweight="semibold")
-    bars = ax_ppw.bar(x, ppw, width=0.62)
+    bars = ax_ppw.bar(x, ppw, width=0.62, color=PALETTE["primary"])
     ax_ppw.set_ylabel("Average PPW ↑")
     ax_ppw.yaxis.grid(True, linewidth=0.7, alpha=0.25)
     ax_ppw.set_axisbelow(True)
@@ -333,7 +340,7 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_stem: Path, mode:
 
     if ax_div is not None:
         diversity = df["top1_share"].to_numpy(dtype=float)
-        div_bars = ax_div.bar(x, diversity, width=0.62)
+        div_bars = ax_div.bar(x, diversity, width=0.62, color=PALETTE["muted"])
         ax_div.set_ylabel("Top-1 share ↓")
         ax_div.set_xlabel("Recommendation method")
         ax_div.set_xticks(x, labels)
