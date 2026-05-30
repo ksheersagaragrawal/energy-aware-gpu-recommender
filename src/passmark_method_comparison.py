@@ -19,18 +19,21 @@ from recommender import GAME_VECTORS, GPU_VECTORS, SOFT_THRESHOLD
 from recommender import build_gpu_features_for_ml, load_ml_model
 
 
-PREDICTIONS_PATH = "data/results/gpu_power_predictions.csv"
-TDP_METRICS_PATH = "data/results/tdp_model_metrics.csv"
-PSU_METRICS_PATH = "data/results/psu_model_metrics.csv"
+# Resolve paths relative to the repository root (two levels up from this file: repo/src -> repo)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+PREDICTIONS_PATH = BASE_DIR / "data" / "results" / "gpu_power_predictions.csv"
+TDP_METRICS_PATH = BASE_DIR / "data" / "results" / "tdp_model_metrics.csv"
+PSU_METRICS_PATH = BASE_DIR / "data" / "results" / "psu_model_metrics.csv"
 
 TDP_USED_COL = "tdp_w_used"
 PSU_USED_COL = "psu_w_used"
 PPW_COL = "perf_per_watt"
 GPU_ID_COL = "gpu_id"
 
-OUTPUT_SUMMARY = "data/results/passmark_method_comparison_summary.csv"
-OUTPUT_PER_GAME = "data/results/passmark_method_comparison_per_game.csv"
-PLOTS_DIR = "results/plots/passmark_analysis"
+OUTPUT_SUMMARY = BASE_DIR / "data" / "results" / "passmark_method_comparison_summary.csv"
+OUTPUT_PER_GAME = BASE_DIR / "data" / "results" / "passmark_method_comparison_per_game.csv"
+PLOTS_DIR = BASE_DIR / "results" / "plots" / "passmark_analysis"
 
 PASTEL_COLORS = [
     "#AEC6CF",
