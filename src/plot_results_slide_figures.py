@@ -35,15 +35,15 @@ PASTEL_COLORS = [
 
 def _configure_style() -> None:
     plt.rcParams.update({
-        "font.size": 9.5,
+        "font.size": 8.5,
         "font.weight": "bold",
         "axes.labelweight": "bold",
         "axes.titleweight": "bold",
-        "axes.titlesize": 12,
-        "axes.labelsize": 10.5,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-        "legend.fontsize": 8.8,
+        "axes.titlesize": 10.5,
+        "axes.labelsize": 9.5,
+        "xtick.labelsize": 8.5,
+        "ytick.labelsize": 8.5,
+        "legend.fontsize": 8.0,
     })
 
 
@@ -93,19 +93,19 @@ def plot_power_quality(metrics: pd.DataFrame, output_path: Path) -> None:
     ax.set_axisbelow(True)
 
     for bar, mae, r2 in zip(bars, maes, r2s):
-        y = max(0.15, bar.get_height() - 0.6)
+        y = max(0.15, bar.get_height() - 0.7)
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             y,
             f"MAE {mae:.1f}\nR2 {r2:.3f}",
             ha="center",
             va="bottom",
-            fontsize=8.8,
+            fontsize=7.8,
             fontweight="bold",
         )
-    ax.set_ylim(0, max(maes) * 1.08)
+    ax.set_ylim(0, max(maes) * 1.06)
 
-    fig.tight_layout(pad=0.9)
+    fig.tight_layout(pad=0.8)
     _save(fig, output_path)
 
 
@@ -152,13 +152,22 @@ def plot_uncertainty_quality(metrics: pd.DataFrame, output_path: Path) -> None:
 
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
-    ax1.legend(h1 + h2, l1 + l2, frameon=False, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.98))
+    ax1.legend(
+        h1 + h2,
+        l1 + l2,
+        frameon=False,
+        loc="upper center",
+        ncol=2,
+        bbox_to_anchor=(0.5, 0.94),
+        columnspacing=0.9,
+        handletextpad=0.4,
+    )
 
     for bar in b1:
         ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{bar.get_height():.2f}",
-                 ha="center", va="bottom", fontsize=8.2, fontweight="bold")
+                 ha="center", va="bottom", fontsize=7.2, fontweight="bold")
 
-    fig.tight_layout(pad=0.9)
+    fig.tight_layout(pad=0.8)
     _save(fig, output_path)
 
 
@@ -228,7 +237,7 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_path: Path) -> No
         ax2.plot(x, df["top1_share"], marker="o", color=PASTEL_COLORS[0], linewidth=2.0, label="Top-1 Share")
         ax2.set_ylabel("Top-1 Share")
         ax2.set_ylim(0, min(1.0, float(np.nanmax(df["top1_share"]) * 1.15)))
-        ax2.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, 0.98))
+        ax2.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, 0.94))
 
     best_idx = int(np.nanargmax(df["avg_ppw"].values))
     y_offset = float(df["avg_ppw"].max()) * 0.03
@@ -238,11 +247,11 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_path: Path) -> No
         "Best PPW",
         ha="center",
         va="bottom",
-        fontsize=8.5,
+        fontsize=7.4,
         fontweight="bold",
     )
 
-    fig.tight_layout(pad=0.9)
+    fig.tight_layout(pad=0.8)
     _save(fig, output_path)
 
 
