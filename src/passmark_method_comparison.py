@@ -567,6 +567,7 @@ def train_ranker(
     group_train: List[int],
 ) -> object:
     import xgboost as xgb
+    from xgboost.core import XGBoostError
 
     params = {
         "objective": "rank:ndcg",
@@ -581,15 +582,27 @@ def train_ranker(
         "n_jobs": 1,
     }
 
-    # GPU options (will be used if xgboost is built with GPU support)
-    params.update({
-        "tree_method": "gpu_hist",
-        "predictor": "gpu_predictor",
-        "gpu_id": 0,
-    })
+    # XGBoost >=3.1 removed gpu_id; prefer modern `device` and fall back safely.
+    gpu_candidate_params = [
+        {**params, "tree_method": "hist", "device": "cuda"},
+        {**params, "tree_method": "gpu_hist"},
+    ]
+    cpu_params = {**params, "tree_method": "hist", "device": "cpu"}
 
-    model = xgb.XGBRanker(**params)
+    for i, cand in enumerate(gpu_candidate_params, start=1):
+        try:
+            _log(f"Trying XGBRanker GPU config {i}/{len(gpu_candidate_params)}")
+            model = xgb.XGBRanker(**cand)
+            model.fit(X_train, y_train, group=group_train)
+            _log("XGBRanker trained on GPU")
+            return model
+        except XGBoostError as e:
+            _log(f"GPU config {i} failed: {e}")
+
+    _log("Falling back to CPU XGBRanker")
+    model = xgb.XGBRanker(**cpu_params)
     model.fit(X_train, y_train, group=group_train)
+    _log("XGBRanker trained on CPU")
     return model
 
 
