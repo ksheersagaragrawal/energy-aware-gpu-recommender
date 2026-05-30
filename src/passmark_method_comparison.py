@@ -96,6 +96,12 @@ def _log(msg: str) -> None:
     print(f"[{ts}] [passmark_method_comparison] {msg}", flush=True)
 
 
+def _numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce feature frame to numeric then fill missing values."""
+    out = df.apply(pd.to_numeric, errors="coerce")
+    return out.fillna(0.0)
+
+
 def _load_best_prediction_columns() -> Tuple[str | None, str | None]:
     tdp_col = None
     psu_col = None
@@ -357,7 +363,7 @@ def train_ml_utility_regressor(
         affinity = feature_affinity_distance(game_row, feasible)
         features = build_pair_features(game_row, scored)
         features["feature_affinity_distance"] = affinity.values
-        features = features.fillna(0.0).infer_objects(copy=False)
+        features = _numeric_frame(features)
         targets = scored["utility_formula_score"].values
 
         if np.isnan(targets).all():
@@ -378,7 +384,7 @@ def train_ml_utility_regressor(
     if not train_rows or not train_targets:
         raise RuntimeError("No valid training samples available for ML utility model.")
 
-    X_train = pd.concat(train_rows, ignore_index=True).fillna(0.0).infer_objects(copy=False)
+    X_train = _numeric_frame(pd.concat(train_rows, ignore_index=True))
     y_train = pd.Series(np.concatenate(train_targets)).replace([np.inf, -np.inf], np.nan)
     valid_mask = y_train.notna()
     X_train = X_train.loc[valid_mask].reset_index(drop=True)
@@ -541,7 +547,7 @@ def build_pair_dataset(
 
         pair_features = build_pair_features(game_row, scored)
         pair_features["feature_affinity_distance"] = affinity.values
-        pair_features = pair_features.fillna(0.0).infer_objects(copy=False)
+        pair_features = _numeric_frame(pair_features)
 
         feature_rows.append(pair_features)
         label_rows.append(labels.values)
@@ -609,14 +615,14 @@ def compute_methods_for_game(
     utility_scored = compute_base_scores(game_row, feasible, affinity)
     utility_topk = utility_scored.sort_values("base_score", ascending=False).head(config.k_top)
 
-    ml_features = build_pair_features(game_row, feasible).fillna(0.0).infer_objects(copy=False)
+    ml_features = _numeric_frame(build_pair_features(game_row, feasible))
     ml_features["feature_affinity_distance"] = affinity.values
     ml_preds = ml_model.predict(ml_features)
     ml_scored = feasible.copy()
     ml_scored["ml_utility_score"] = ml_preds
     ml_topk = ml_scored.sort_values("ml_utility_score", ascending=False).head(config.k_top)
 
-    ltr_features = build_pair_features(game_row, feasible).fillna(0.0).infer_objects(copy=False)
+    ltr_features = _numeric_frame(build_pair_features(game_row, feasible))
     ltr_features["feature_affinity_distance"] = affinity.values
     ltr_preds = ltr_model.predict(ltr_features)
     ltr_scored = feasible.copy()
