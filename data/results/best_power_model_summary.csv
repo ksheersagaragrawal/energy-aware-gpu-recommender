@@ -1,0 +1,3 @@
+target,best_model,test_mae,test_r2,coverage_90
+tdp_w,XGBoost,13.627280177240786,0.9258535799877384,
+psu_w,Gradient Boosting,20.660975794544555,0.9068599833144584,

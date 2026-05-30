@@ -1,0 +1,97 @@
+[device] using cuda
+============================================================
+POWER MODEL TRAINING
+  device: cuda
+============================================================
+[load] 1441 rows x 143 cols  (gpu_power_vectors.csv)
+
+============================================================
+  TARGET: tdp_w
+============================================================
+  training-eligible rows: 1148  /  total: 1441
+  split: train=803  val=115  test=230
+  [Linear Regression] training...
+  [Linear Regression] val_mae=23.319  test_mae=20.910  r2=0.879  time=0.0s
+  [Ridge Regression] training...
+  [Ridge Regression] val_mae=23.342  test_mae=20.848  r2=0.879  time=0.0s
+  [Lasso Regression] training...
+/usr/local/lib/python3.12/dist-packages/sklearn/linear_model/_coordinate_descent.py:695: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 3.613e+03, tolerance: 6.795e+02
+  model = cd_fast.enet_coordinate_descent(
+  [Lasso Regression] val_mae=23.415  test_mae=20.789  r2=0.880  time=0.9s
+  [MLP] training...
+  [MLP] val_mae=16.473  test_mae=17.033  r2=0.916  time=108.4s
+  [Random Forest] training...
+  [Random Forest] val_mae=14.329  test_mae=14.872  r2=0.902  time=102.4s
+  [Gradient Boosting] training...
+  [Gradient Boosting] val_mae=12.244  test_mae=13.786  r2=0.922  time=359.4s
+  [XGBoost] training...
+/usr/local/lib/python3.12/dist-packages/xgboost/core.py:751: UserWarning: [01:43:04] WARNING: /__w/xgboost/xgboost/src/common/error_msg.cc:62: Falling back to prediction using DMatrix due to mismatched devices. This might lead to higher memory usage and slower performance. XGBoost is running on: cuda:0, while the input data is on: cpu.
+Potential solutions:
+- Use a data structure that matches the device ordinal in the booster.
+- Set the device for booster before call to inplace_predict.
+
+This warning will only be shown once.
+
+  return func(**kwargs)
+  [XGBoost] val_mae=12.267  test_mae=13.627  r2=0.926  time=245.1s
+  [Bayesian Ridge] training...
+  [Bayesian Ridge] val_mae=21.412  test_mae=19.951  coverage_90=0.930  width=103.48  time=0.8s
+  [Quantile XGBoost] training Variant A (native NaN)...
+  [QXGB A] val_mae=12.726  test_mae=13.842  coverage_90=0.570  width=44.15  time=506.7s
+  [Quantile XGBoost] training Variant B (impute + indicators)...
+  [QXGB B] val_mae=12.529  test_mae=14.012  coverage_90=0.639  width=46.60  time=507.4s
+  [Quantile XGBoost] chose variant: impute_indicator
+  [Gaussian Process] training...
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 11 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 15 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+  [Gaussian Process] val_mae=10.263  test_mae=18.571  coverage_90=0.900  width=70.97  time=639.7s
+
+============================================================
+  TARGET: psu_w
+============================================================
+  training-eligible rows: 1409  /  total: 1441
+  split: train=986  val=141  test=282
+  [Linear Regression] training...
+  [Linear Regression] val_mae=40.789  test_mae=35.606  r2=0.888  time=0.0s
+  [Ridge Regression] training...
+  [Ridge Regression] val_mae=40.262  test_mae=35.352  r2=0.889  time=0.0s
+  [Lasso Regression] training...
+/usr/local/lib/python3.12/dist-packages/sklearn/linear_model/_coordinate_descent.py:695: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations, check the scale of the features or consider increasing regularisation. Duality gap: 4.069e+03, tolerance: 2.342e+03
+  model = cd_fast.enet_coordinate_descent(
+  [Lasso Regression] val_mae=40.357  test_mae=35.487  r2=0.889  time=1.2s
+  [MLP] training...
+  [MLP] val_mae=32.979  test_mae=27.291  r2=0.918  time=111.5s
+  [Random Forest] training...
+  [Random Forest] val_mae=26.127  test_mae=22.600  r2=0.913  time=103.3s
+  [Gradient Boosting] training...
+  [Gradient Boosting] val_mae=23.641  test_mae=20.661  r2=0.907  time=415.3s
+  [XGBoost] training...
+  [XGBoost] val_mae=23.604  test_mae=22.366  r2=0.909  time=255.8s
+  [Bayesian Ridge] training...
+  [Bayesian Ridge] val_mae=36.691  test_mae=34.873  coverage_90=0.940  width=189.06  time=0.1s
+  [Quantile XGBoost] training Variant A (native NaN)...
+  [QXGB A] val_mae=22.562  test_mae=21.873  coverage_90=0.504  width=68.85  time=506.0s
+  [Quantile XGBoost] training Variant B (impute + indicators)...
+  [QXGB B] val_mae=22.599  test_mae=21.340  coverage_90=0.507  width=73.72  time=508.8s
+  [Quantile XGBoost] chose variant: impute_indicator
+  [Gaussian Process] training...
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 0 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 9 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 13 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 14 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/sklearn/gaussian_process/kernels.py:452: ConvergenceWarning: The optimal value found for dimension 18 of parameter k1__k2__length_scale is close to the specified upper bound 1000.0. Increasing the bound and calling fit again may find a better value.
+  warnings.warn(
+  [Gaussian Process] val_mae=19.768  test_mae=26.876  coverage_90=0.922  width=142.03  time=975.8s
+
+[save] metrics -> tdp_model_metrics.csv, psu_model_metrics.csv
+[save] predictions (1441 rows x 48 cols) -> gpu_power_predictions.csv
+[save] best-model summary -> best_power_model_summary.csv
+[save] confidence thresholds -> confidence_thresholds.json
+
+[done]
