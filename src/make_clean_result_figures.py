@@ -407,6 +407,76 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_stem: Path, mode:
     save_figure(fig, output_stem)
 
 
+def plot_recommender_table(summary_df: pd.DataFrame, output_stem: Path, mode: str) -> None:
+    """Create a compact table view for one-slide communication."""
+    df = ordered_methods(summary_df).copy()
+    df["Method"] = df["method"].map(short_method_label)
+    if "avg_ppw" not in df.columns:
+        raise ValueError("Recommender table needs avg_ppw.")
+    if "unique_gpus" not in df.columns:
+        df["unique_gpus"] = np.nan
+    if "top1_share" not in df.columns:
+        df["top1_share"] = np.nan
+
+    table_df = df[["Method", "avg_ppw", "unique_gpus", "top1_share"]].copy()
+    table_df.columns = ["Method", "Avg PPW (↑)", "Unique GPUs (↑)", "Top-1 share (↓)"]
+    table_df["Avg PPW (↑)"] = table_df["Avg PPW (↑)"].map(lambda v: f"{float(v):.4f}")
+    table_df["Unique GPUs (↑)"] = table_df["Unique GPUs (↑)"].map(
+        lambda v: "-" if pd.isna(v) else f"{int(v)}"
+    )
+    table_df["Top-1 share (↓)"] = table_df["Top-1 share (↓)"].map(
+        lambda v: "-" if pd.isna(v) else f"{float(v):.2f}"
+    )
+
+    raw = df[["avg_ppw", "unique_gpus", "top1_share"]].copy()
+    best_ppw = int(raw["avg_ppw"].idxmax())
+    best_unique = int(raw["unique_gpus"].idxmax()) if raw["unique_gpus"].notna().any() else None
+    best_diverse = int(raw["top1_share"].idxmin()) if raw["top1_share"].notna().any() else None
+
+    fig_w, fig_h = ((9.2, 4.8) if mode == "slide" else (7.0, 3.7))
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout="constrained")
+    ax.axis("off")
+    ax.set_title("Recommender Comparison Summary", fontweight="semibold", pad=8)
+
+    tbl = ax.table(
+        cellText=table_df.values.tolist(),
+        colLabels=table_df.columns.tolist(),
+        colLoc="center",
+        cellLoc="center",
+        loc="center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(7 if mode == "slide" else 8)
+    tbl.scale(1.0, 1.35 if mode == "slide" else 1.2)
+
+    # Header styling.
+    for c in range(len(table_df.columns)):
+        cell = tbl[(0, c)]
+        cell.set_facecolor("#E9EEF4")
+        cell.get_text().set_fontweight("bold")
+
+    # Highlight "best" cells to make inference instant.
+    def highlight(row_idx: int, col_idx: int, color: str) -> None:
+        tbl[(row_idx + 1, col_idx)].set_facecolor(color)
+        tbl[(row_idx + 1, col_idx)].get_text().set_fontweight("bold")
+
+    highlight(best_ppw, 1, "#DCE9F6")
+    if best_unique is not None:
+        highlight(best_unique, 2, "#DFF0E4")
+    if best_diverse is not None:
+        highlight(best_diverse, 3, "#EAE6F6")
+
+    ax.text(
+        0.0,
+        -0.10,
+        "Highlighted cells mark: best PPW, highest catalog coverage, and highest diversity (lowest top-1 share).",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+    )
+    save_figure(fig, output_stem)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate clean result figures.")
     parser.add_argument("--tdp-metrics", default=DEFAULT_TDP_METRICS)
@@ -426,6 +496,12 @@ def main() -> None:
         default="all",
         help="Plot pooled uncertainty metrics or restrict uncertainty to one target.",
     )
+    parser.add_argument(
+        "--recommender-view",
+        choices=["plot", "table", "both"],
+        default="table",
+        help="Choose recommender output style for the slide.",
+    )
     args = parser.parse_args()
 
     configure_style(args.mode)
@@ -441,11 +517,18 @@ def main() -> None:
         args.mode,
         args.uq_target,
     )
-    plot_recommender_outcomes(
-        method_summary,
-        output_dir / "figure_recommender_outcomes",
-        args.mode,
-    )
+    if args.recommender_view in {"plot", "both"}:
+        plot_recommender_outcomes(
+            method_summary,
+            output_dir / "figure_recommender_outcomes",
+            args.mode,
+        )
+    if args.recommender_view in {"table", "both"}:
+        plot_recommender_table(
+            method_summary,
+            output_dir / "figure_recommender_summary_table",
+            args.mode,
+        )
 
     print(f"Saved PDF and PNG figures to: {output_dir}")
 
