@@ -408,7 +408,7 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_stem: Path, mode:
 
 
 def plot_recommender_table(summary_df: pd.DataFrame, output_stem: Path, mode: str) -> None:
-    """Create a compact table view for one-slide communication."""
+    """Create a decision table for single-objective vs multi-objective selection."""
     df = ordered_methods(summary_df).copy()
     df["Method"] = df["method"].map(short_method_label)
     if "avg_ppw" not in df.columns:
@@ -418,25 +418,58 @@ def plot_recommender_table(summary_df: pd.DataFrame, output_stem: Path, mode: st
     if "top1_share" not in df.columns:
         df["top1_share"] = np.nan
 
-    table_df = df[["Method", "avg_ppw", "unique_gpus", "top1_share"]].copy()
-    table_df.columns = ["Method", "Avg PPW (↑)", "Unique GPUs (↑)", "Top-1 share (↓)"]
+    # Core derived metrics for decision framing.
+    best_ppw = float(df["avg_ppw"].max())
+    df["eff_regret_pct"] = 100.0 * (best_ppw - df["avg_ppw"]) / best_ppw
+    df["diversity_score"] = 1.0 - df["top1_share"].astype(float)
+
+    def _minmax(values: pd.Series) -> pd.Series:
+        vmin, vmax = float(values.min()), float(values.max())
+        if np.isclose(vmax, vmin):
+            return pd.Series(np.ones(len(values)), index=values.index, dtype=float)
+        return (values - vmin) / (vmax - vmin)
+
+    df["ppw_norm"] = _minmax(df["avg_ppw"].astype(float))
+    df["div_norm"] = _minmax(df["diversity_score"].astype(float))
+    df["regret_norm"] = _minmax(df["eff_regret_pct"].astype(float))
+    # Weight efficiency most, but reward diversity and low-regret balance.
+    df["balanced_score"] = 0.50 * df["ppw_norm"] + 0.35 * df["div_norm"] + 0.15 * (1.0 - df["regret_norm"])
+
+    table_df = df[
+        ["Method", "avg_ppw", "eff_regret_pct", "diversity_score", "unique_gpus", "balanced_score"]
+    ].copy()
+    table_df.columns = [
+        "Method",
+        "Avg PPW (↑)",
+        "Eff. regret vs Power % (↓)",
+        "Diversity 1-top1 (↑)",
+        "Unique GPUs (↑)",
+        "Balanced score (↑)",
+    ]
     table_df["Avg PPW (↑)"] = table_df["Avg PPW (↑)"].map(lambda v: f"{float(v):.4f}")
+    table_df["Eff. regret vs Power % (↓)"] = table_df["Eff. regret vs Power % (↓)"].map(
+        lambda v: f"{float(v):.1f}%"
+    )
+    table_df["Diversity 1-top1 (↑)"] = table_df["Diversity 1-top1 (↑)"].map(
+        lambda v: "-" if pd.isna(v) else f"{float(v):.2f}"
+    )
     table_df["Unique GPUs (↑)"] = table_df["Unique GPUs (↑)"].map(
         lambda v: "-" if pd.isna(v) else f"{int(v)}"
     )
-    table_df["Top-1 share (↓)"] = table_df["Top-1 share (↓)"].map(
-        lambda v: "-" if pd.isna(v) else f"{float(v):.2f}"
+    table_df["Balanced score (↑)"] = table_df["Balanced score (↑)"].map(
+        lambda v: f"{float(v):.3f}"
     )
 
-    raw = df[["avg_ppw", "unique_gpus", "top1_share"]].copy()
-    best_ppw = int(raw["avg_ppw"].idxmax())
+    raw = df[["avg_ppw", "unique_gpus", "diversity_score", "balanced_score"]].copy()
+    best_ppw_idx = int(raw["avg_ppw"].idxmax())
     best_unique = int(raw["unique_gpus"].idxmax()) if raw["unique_gpus"].notna().any() else None
-    best_diverse = int(raw["top1_share"].idxmin()) if raw["top1_share"].notna().any() else None
+    best_diverse = int(raw["diversity_score"].idxmax()) if raw["diversity_score"].notna().any() else None
+    best_balanced_idx = int(raw["balanced_score"].idxmax())
 
     fig_w, fig_h = ((9.2, 4.8) if mode == "slide" else (7.0, 3.7))
     fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout="constrained")
     ax.axis("off")
-    ax.set_title("Recommender Comparison Summary", fontweight="semibold", pad=8)
+    ax.set_title("Recommender Decision Table: Efficiency vs Balanced Multi-Objective", fontweight="semibold", pad=8)
 
     tbl = ax.table(
         cellText=table_df.values.tolist(),
@@ -446,7 +479,7 @@ def plot_recommender_table(summary_df: pd.DataFrame, output_stem: Path, mode: st
         loc="center",
     )
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(7 if mode == "slide" else 8)
+    tbl.set_fontsize(6 if mode == "slide" else 8)
     tbl.scale(1.0, 1.35 if mode == "slide" else 1.2)
 
     # Header styling.
@@ -460,16 +493,27 @@ def plot_recommender_table(summary_df: pd.DataFrame, output_stem: Path, mode: st
         tbl[(row_idx + 1, col_idx)].set_facecolor(color)
         tbl[(row_idx + 1, col_idx)].get_text().set_fontweight("bold")
 
-    highlight(best_ppw, 1, "#DCE9F6")
+    highlight(best_ppw_idx, 1, "#DCE9F6")
     if best_unique is not None:
-        highlight(best_unique, 2, "#DFF0E4")
+        highlight(best_unique, 4, "#DFF0E4")
     if best_diverse is not None:
         highlight(best_diverse, 3, "#EAE6F6")
+    highlight(best_balanced_idx, 5, "#F6E9D8")
+
+    # Add in-cell tags for headline decision rows.
+    method_col = 0
+    ppw_cell = tbl[(best_ppw_idx + 1, method_col)]
+    ppw_cell.get_text().set_text(f"{ppw_cell.get_text().get_text()}  [Best PPW]")
+    ppw_cell.get_text().set_fontweight("bold")
+    bal_cell = tbl[(best_balanced_idx + 1, method_col)]
+    if best_balanced_idx != best_ppw_idx:
+        bal_cell.get_text().set_text(f"{bal_cell.get_text().get_text()}  [Best Balanced]")
+        bal_cell.get_text().set_fontweight("bold")
 
     ax.text(
         0.0,
         -0.10,
-        "Highlighted cells mark: best PPW, highest catalog coverage, and highest diversity (lowest top-1 share).",
+        "Decision rule: choose Power for pure PPW optimization; choose LTR-style methods when balanced efficiency + diversity matters.",
         transform=ax.transAxes,
         ha="left",
         va="top",
