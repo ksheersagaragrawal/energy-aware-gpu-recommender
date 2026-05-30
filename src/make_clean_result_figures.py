@@ -102,13 +102,6 @@ def read_power_metrics(tdp_path: str, psu_path: str) -> pd.DataFrame:
     return metrics
 
 
-def best_row(metrics: pd.DataFrame, target: str) -> pd.Series:
-    rows = metrics.loc[metrics["target"].astype(str) == target].copy()
-    if rows.empty:
-        raise ValueError(f"No rows found for target={target!r}")
-    return rows.sort_values("test_mae", ascending=True).iloc[0]
-
-
 def clean_model_name(name: object) -> str:
     rename = {
         "Gradient Boosting": "Gradient Boosting",
@@ -124,34 +117,56 @@ def clean_model_name(name: object) -> str:
 
 
 def plot_power_quality(metrics: pd.DataFrame, output_stem: Path, mode: str) -> None:
-    """Show the two prediction targets compactly, with metrics outside the bars."""
-    rows = [best_row(metrics, "tdp_w"), best_row(metrics, "psu_w")]
-    labels = [
-        f"TDP\n{clean_model_name(rows[0]['model'])}",
-        f"PSU\n{clean_model_name(rows[1]['model'])}",
-    ]
-    maes = np.array([float(row["test_mae"]) for row in rows])
-    r2_values = np.array([float(row["test_r2"]) for row in rows])
+    """Show MAE for all evaluated models across TDP/PSU targets."""
+    plot_df = metrics.copy()
+    plot_df["model_label"] = plot_df["model"].map(clean_model_name)
+    plot_df["target_label"] = plot_df["target"].astype(str).map({"tdp_w": "TDP", "psu_w": "PSU"})
+    plot_df = plot_df.dropna(subset=["model_label", "target_label", "test_mae"]).copy()
+    if plot_df.empty:
+        raise ValueError("No valid rows available for power-model plotting.")
+
+    order = (
+        plot_df.groupby("model_label", as_index=False)["test_mae"]
+        .mean()
+        .sort_values("test_mae", ascending=True)["model_label"]
+        .tolist()
+    )
+    pivot = (
+        plot_df.pivot_table(index="model_label", columns="target_label", values="test_mae", aggfunc="mean")
+        .reindex(order)
+    )
 
     fig, ax = plt.subplots(figsize=figure_size(mode, "power"), layout="constrained")
-    x = np.arange(len(labels))
-    bars = ax.bar(x, maes, width=0.52, color=[PALETTE["primary"], PALETTE["secondary"]])
+    x = np.arange(len(pivot.index))
+    width = 0.38
+    tdp_vals = pivot.get("TDP", pd.Series(index=pivot.index, dtype=float)).to_numpy(dtype=float)
+    psu_vals = pivot.get("PSU", pd.Series(index=pivot.index, dtype=float)).to_numpy(dtype=float)
+    tdp_bars = ax.bar(x - width / 2, tdp_vals, width=width, color=PALETTE["primary"], label="TDP")
+    psu_bars = ax.bar(x + width / 2, psu_vals, width=width, color=PALETTE["secondary"], label="PSU")
 
-    ax.set_title("Best Power Prediction Models")
+    ax.set_title("Power Model Quality Across All Tested Models")
     ax.set_ylabel("Test MAE (W) ↓")
-    ax.set_xticks(x, labels)
+    ax.set_xticks(x, pivot.index.tolist(), rotation=22, ha="right")
     ax.yaxis.grid(True, linewidth=0.7, alpha=0.25)
     ax.set_axisbelow(True)
-    ax.set_ylim(0, float(maes.max()) * 1.27)
+    max_mae = np.nanmax(np.concatenate([tdp_vals, psu_vals]))
+    ax.set_ylim(0, float(max_mae) * 1.24)
 
-    for bar, mae, r2 in zip(bars, maes, r2_values):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            mae + float(maes.max()) * 0.035,
-            f"{mae:.1f} W\n$R^2$={r2:.2f}",
-            ha="center",
-            va="bottom",
-        )
+    def annotate_bars(bars: Iterable, values: np.ndarray) -> None:
+        for bar, val in zip(bars, values):
+            if np.isnan(val):
+                continue
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                val + float(max_mae) * 0.02,
+                f"{val:.1f}",
+                ha="center",
+                va="bottom",
+            )
+
+    annotate_bars(tdp_bars, tdp_vals)
+    annotate_bars(psu_bars, psu_vals)
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
 
     save_figure(fig, output_stem)
 
@@ -296,76 +311,98 @@ def short_method_label(method: object) -> str:
 
 
 def plot_recommender_outcomes(summary_df: pd.DataFrame, output_stem: Path, mode: str) -> None:
-    """Use aligned panels rather than a dual-axis overlay."""
+    """Make the efficiency/diversity trade-off explicit and easy to infer."""
     df = ordered_methods(summary_df)
     labels = [short_method_label(value) for value in df["method"].astype(str)]
     ppw = df["avg_ppw"].to_numpy(dtype=float)
-    x = np.arange(len(df))
     has_diversity = "top1_share" in df.columns and df["top1_share"].notna().any()
 
     if has_diversity:
-        fig, (ax_ppw, ax_div) = plt.subplots(
-            2,
+        fig, (ax_rank, ax_trade) = plt.subplots(
             1,
+            2,
             figsize=figure_size(mode, "recommender"),
-            sharex=True,
-            gridspec_kw={"height_ratios": [1.7, 1.05]},
+            gridspec_kw={"width_ratios": [1.25, 1.0]},
             layout="constrained",
         )
     else:
-        fig, ax_ppw = plt.subplots(
-            figsize=figure_size(mode, "recommender"), layout="constrained"
+        fig, ax_rank = plt.subplots(figsize=figure_size(mode, "recommender"), layout="constrained")
+        ax_trade = None
+
+    fig.suptitle("Recommendation Outcomes: Efficiency vs Diversity", fontweight="semibold")
+
+    # Panel A: PPW ranking with delta vs KNN baseline.
+    order_idx = np.argsort(-ppw)
+    rank_labels = [labels[i] for i in order_idx]
+    rank_ppw = ppw[order_idx]
+    y = np.arange(len(rank_ppw))
+    colors = [PALETTE["primary"] if i == 0 else PALETTE["secondary"] for i in range(len(rank_ppw))]
+    bars = ax_rank.barh(y, rank_ppw, color=colors)
+    ax_rank.set_yticks(y, rank_labels)
+    ax_rank.invert_yaxis()
+    ax_rank.set_xlabel("Average PPW (higher is better)")
+    ax_rank.xaxis.grid(True, linewidth=0.7, alpha=0.25)
+    ax_rank.set_axisbelow(True)
+
+    baseline_idx = None
+    for i, method_name in enumerate(df["method"].astype(str)):
+        if method_name == "KNN50-Feasible":
+            baseline_idx = i
+            break
+    baseline = ppw[baseline_idx] if baseline_idx is not None else np.nan
+
+    max_ppw = float(np.nanmax(rank_ppw))
+    ax_rank.set_xlim(0, max_ppw * 1.32)
+    for i, (bar, value) in enumerate(zip(bars, rank_ppw)):
+        txt = f"{value:.4f}"
+        if i == 0:
+            txt += "  (best)"
+        if np.isfinite(baseline) and baseline > 0:
+            gain = (value / baseline - 1.0) * 100.0
+            txt += f"\n{gain:+.0f}% vs KNN"
+        ax_rank.text(
+            value + max_ppw * 0.03,
+            bar.get_y() + bar.get_height() / 2,
+            txt,
+            va="center",
+            ha="left",
         )
-        ax_div = None
+    ax_rank.set_title("A) Efficiency Ranking")
 
-    fig.suptitle("Recommendation Outcomes", fontweight="semibold")
-    bars = ax_ppw.bar(x, ppw, width=0.62, color=PALETTE["primary"])
-    ax_ppw.set_ylabel("Average PPW ↑")
-    ax_ppw.yaxis.grid(True, linewidth=0.7, alpha=0.25)
-    ax_ppw.set_axisbelow(True)
-    ax_ppw.set_ylim(0, float(np.nanmax(ppw)) * 1.24)
-
-    best_idx = int(np.nanargmax(ppw))
-    for idx, (bar, value) in enumerate(zip(bars, ppw)):
-        label = f"{value:.4f}"
-        if idx == best_idx:
-            label += "\nBest"
-        ax_ppw.text(
-            bar.get_x() + bar.get_width() / 2,
-            value + float(np.nanmax(ppw)) * 0.035,
-            label,
-            ha="center",
-            va="bottom",
-        )
-
-    if ax_div is not None:
+    # Panel B: trade-off map.
+    if ax_trade is not None:
         diversity = df["top1_share"].to_numpy(dtype=float)
-        div_bars = ax_div.bar(x, diversity, width=0.62, color=PALETTE["muted"])
-        ax_div.set_ylabel("Top-1 share ↓")
-        ax_div.set_xlabel("Recommendation method")
-        ax_div.set_xticks(x, labels)
-        ax_div.set_ylim(0, 1.05)
-        ax_div.yaxis.grid(True, linewidth=0.7, alpha=0.25)
-        ax_div.set_axisbelow(True)
-        ax_div.text(
-            1.0,
-            0.96,
-            "Lower means more diverse",
-            transform=ax_div.transAxes,
-            ha="right",
+        x_vals = diversity
+        y_vals = ppw
+
+        ax_trade.scatter(
+            x_vals,
+            y_vals,
+            s=58,
+            color=PALETTE["muted"],
+            edgecolor="white",
+            linewidth=0.7,
+        )
+        for x_val, y_val, label in zip(x_vals, y_vals, labels):
+            ax_trade.text(x_val + 0.01, y_val, label, va="center", ha="left")
+
+        med_x = float(np.nanmedian(x_vals))
+        med_y = float(np.nanmedian(y_vals))
+        ax_trade.axvline(med_x, color=PALETTE["accent"], linestyle="--", linewidth=0.9)
+        ax_trade.axhline(med_y, color=PALETTE["accent"], linestyle="--", linewidth=0.9)
+        ax_trade.text(
+            0.03,
+            0.97,
+            "Better zone:\nhigh PPW + low top-1 share",
+            transform=ax_trade.transAxes,
+            ha="left",
             va="top",
         )
-        for bar, value in zip(div_bars, diversity):
-            ax_div.text(
-                bar.get_x() + bar.get_width() / 2,
-                value + 0.035,
-                f"{value:.2f}",
-                ha="center",
-                va="bottom",
-            )
-    else:
-        ax_ppw.set_xlabel("Recommendation method")
-        ax_ppw.set_xticks(x, labels)
+        ax_trade.set_xlabel("Top-1 share (lower is more diverse)")
+        ax_trade.set_ylabel("Average PPW")
+        ax_trade.grid(True, linewidth=0.7, alpha=0.25)
+        ax_trade.set_axisbelow(True)
+        ax_trade.set_title("B) Trade-off Map")
 
     save_figure(fig, output_stem)
 
