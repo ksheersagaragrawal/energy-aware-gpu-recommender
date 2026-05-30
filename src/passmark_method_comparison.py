@@ -10,10 +10,20 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple
+import time
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import warnings
+
+try:
+    from sklearn.base import InconsistentVersionWarning
+except Exception:
+    InconsistentVersionWarning = None
+
+if InconsistentVersionWarning is not None:
+    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 
 from recommender import GAME_VECTORS, GPU_VECTORS, SOFT_THRESHOLD
 from recommender import build_gpu_features_for_ml, load_ml_model
@@ -79,6 +89,11 @@ def _configure_style() -> None:
         "ytick.labelsize": 10,
         "legend.fontsize": 10,
     })
+
+
+def _log(msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] [passmark_method_comparison] {msg}", flush=True)
 
 
 def _load_best_prediction_columns() -> Tuple[str | None, str | None]:
@@ -330,16 +345,19 @@ def train_ml_utility_regressor(
     test_rows = []
     test_targets = []
 
-    for _, game_row in games_df.iterrows():
+    total_games = len(games_df)
+    for i, (_, game_row) in enumerate(games_df.iterrows(), start=1):
         feasible = soft_filter(hard_filter(gpu_df, game_row), game_row, config.soft_threshold)
         if feasible.empty:
+            if i % 500 == 0 or i == total_games:
+                _log(f"ML utility training data pass: processed {i}/{total_games} games")
             continue
         scored = utility_formula_scores(game_row, feasible)
         # include feature affinity distance so training and prediction feature sets match
         affinity = feature_affinity_distance(game_row, feasible)
         features = build_pair_features(game_row, scored)
         features["feature_affinity_distance"] = affinity.values
-        features = features.fillna(0.0)
+        features = features.fillna(0.0).infer_objects(copy=False)
         targets = scored["utility_formula_score"].values
 
         if np.isnan(targets).all():
@@ -354,10 +372,13 @@ def train_ml_utility_regressor(
             test_rows.append(features[mask])
             test_targets.append(targets[mask])
 
+        if i % 500 == 0 or i == total_games:
+            _log(f"ML utility training data pass: processed {i}/{total_games} games")
+
     if not train_rows or not train_targets:
         raise RuntimeError("No valid training samples available for ML utility model.")
 
-    X_train = pd.concat(train_rows, ignore_index=True).fillna(0.0)
+    X_train = pd.concat(train_rows, ignore_index=True).fillna(0.0).infer_objects(copy=False)
     y_train = pd.Series(np.concatenate(train_targets)).replace([np.inf, -np.inf], np.nan)
     valid_mask = y_train.notna()
     X_train = X_train.loc[valid_mask].reset_index(drop=True)
@@ -489,9 +510,12 @@ def build_pair_dataset(
     group_sizes = []
     label_lookup: Dict[str, Dict[str, int]] = {}
 
-    for _, game_row in games_df.iterrows():
+    total_games = len(games_df)
+    for i, (_, game_row) in enumerate(games_df.iterrows(), start=1):
         feasible = soft_filter(hard_filter(gpu_df, game_row), game_row, config.soft_threshold)
         if feasible.empty:
+            if i % 500 == 0 or i == total_games:
+                _log(f"LTR pair-build pass: processed {i}/{total_games} games")
             continue
 
         affinity = feature_affinity_distance(game_row, feasible)
@@ -517,11 +541,14 @@ def build_pair_dataset(
 
         pair_features = build_pair_features(game_row, scored)
         pair_features["feature_affinity_distance"] = affinity.values
-        pair_features = pair_features.fillna(0.0)
+        pair_features = pair_features.fillna(0.0).infer_objects(copy=False)
 
         feature_rows.append(pair_features)
         label_rows.append(labels.values)
         group_sizes.append(len(labels))
+
+        if i % 500 == 0 or i == total_games:
+            _log(f"LTR pair-build pass: processed {i}/{total_games} games")
 
     X = pd.concat(feature_rows, ignore_index=True)
     y = pd.Series(np.concatenate(label_rows))
@@ -582,14 +609,14 @@ def compute_methods_for_game(
     utility_scored = compute_base_scores(game_row, feasible, affinity)
     utility_topk = utility_scored.sort_values("base_score", ascending=False).head(config.k_top)
 
-    ml_features = build_pair_features(game_row, feasible).fillna(0.0)
+    ml_features = build_pair_features(game_row, feasible).fillna(0.0).infer_objects(copy=False)
     ml_features["feature_affinity_distance"] = affinity.values
     ml_preds = ml_model.predict(ml_features)
     ml_scored = feasible.copy()
     ml_scored["ml_utility_score"] = ml_preds
     ml_topk = ml_scored.sort_values("ml_utility_score", ascending=False).head(config.k_top)
 
-    ltr_features = build_pair_features(game_row, feasible).fillna(0.0)
+    ltr_features = build_pair_features(game_row, feasible).fillna(0.0).infer_objects(copy=False)
     ltr_features["feature_affinity_distance"] = affinity.values
     ltr_preds = ltr_model.predict(ltr_features)
     ltr_scored = feasible.copy()
@@ -697,11 +724,15 @@ def main() -> None:
     args = parser.parse_args()
 
     _configure_style()
+    _log("Run started")
 
+    _log(f"Loading game vectors ({args.mode}) and GPU vectors")
     games = pd.read_csv(GAME_VECTORS[args.mode])
     gpus = pd.read_csv(GPU_VECTORS)
+    _log(f"Loaded games={len(games)}, gpus={len(gpus)}")
     gpus = attach_power_predictions(gpus)
     gpus = attach_passmark_perf_score(gpus)
+    _log("Attached power predictions and PassMark-based perf scores")
 
     config = Config(
         mode=args.mode,
@@ -711,31 +742,37 @@ def main() -> None:
     )
 
     train_games, test_games = _train_test_split_games(games, config)
+    _log(f"Train/test split: train_games={len(train_games)}, test_games={len(test_games)}")
 
-    print(f"Training ML utility regressor on {len(train_games)} games...")
+    _log(f"Training ML utility regressor on {len(train_games)} train games")
     ml_model = train_ml_utility_regressor(games, gpus, train_games, test_games, config)
-    print("ML utility regressor trained.")
+    _log("ML utility regressor trained")
 
-    print("Building pair dataset for LTR training...")
+    _log("Building pair dataset for LTR training")
     X_train, y_train, group_train, label_lookup = build_pair_dataset(
         games[games["name"].isin(train_games)],
         gpus,
         config,
     )
-    print(f"Built pair dataset: X={X_train.shape}, y={y_train.shape}, groups={len(group_train)}")
+    _log(f"Built pair dataset: X={X_train.shape}, y={y_train.shape}, groups={len(group_train)}")
 
-    print("Training LTR ranker (XGBRanker)...")
+    _log("Training LTR ranker (XGBRanker)")
     ltr_model = train_ranker(X_train, y_train, group_train)
-    print("LTR ranker trained.")
+    _log("LTR ranker trained")
 
     per_game_rows: List[Dict[str, object]] = []
 
+    eval_total = len(test_games)
+    eval_seen = 0
     for _, game_row in games.iterrows():
         if game_row["name"] not in test_games:
             continue
+        eval_seen += 1
 
         metrics = compute_methods_for_game(game_row, gpus, config, ml_model, ltr_model, label_lookup)
         if not metrics:
+            if eval_seen % 250 == 0 or eval_seen == eval_total:
+                _log(f"Evaluation pass: processed {eval_seen}/{eval_total} test games")
             continue
 
         row = {"game_name": game_row["name"]}
@@ -746,6 +783,8 @@ def main() -> None:
             row[f"{method}_avg_psu"] = vals["avg_psu"]
             row[f"{method}_gpu_names"] = names[method]
         per_game_rows.append(row)
+        if eval_seen % 250 == 0 or eval_seen == eval_total:
+            _log(f"Evaluation pass: processed {eval_seen}/{eval_total} test games")
 
     per_game_df = pd.DataFrame(per_game_rows)
     summary_df = summarize(per_game_rows)
@@ -756,12 +795,12 @@ def main() -> None:
 
     plot_summary(summary_df)
 
-    print("Saved outputs:")
-    print(f"  {OUTPUT_PER_GAME}")
-    print(f"  {OUTPUT_SUMMARY}")
-    print(f"  {Path(PLOTS_DIR) / 'passmark_methods_ppw.png'}")
-    print(f"  {Path(PLOTS_DIR) / 'passmark_methods_unique.png'}")
-    print(f"  {Path(PLOTS_DIR) / 'passmark_methods_top1_share.png'}")
+    _log("Saved outputs:")
+    _log(f"  {OUTPUT_PER_GAME}")
+    _log(f"  {OUTPUT_SUMMARY}")
+    _log(f"  {Path(PLOTS_DIR) / 'passmark_methods_ppw.png'}")
+    _log(f"  {Path(PLOTS_DIR) / 'passmark_methods_unique.png'}")
+    _log(f"  {Path(PLOTS_DIR) / 'passmark_methods_top1_share.png'}")
 
 
 def _train_test_split_games(games: pd.DataFrame, config: Config) -> Tuple[set, set]:
