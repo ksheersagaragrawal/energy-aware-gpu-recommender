@@ -35,15 +35,15 @@ PASTEL_COLORS = [
 
 def _configure_style() -> None:
     plt.rcParams.update({
-        "font.size": 8.5,
+        "font.size": 4.25,
         "font.weight": "bold",
         "axes.labelweight": "bold",
         "axes.titleweight": "bold",
-        "axes.titlesize": 10.5,
-        "axes.labelsize": 9.5,
-        "xtick.labelsize": 8.5,
-        "ytick.labelsize": 8.5,
-        "legend.fontsize": 8.0,
+        "axes.titlesize": 5.25,
+        "axes.labelsize": 4.75,
+        "xtick.labelsize": 4.25,
+        "ytick.labelsize": 4.25,
+        "legend.fontsize": 4.0,
     })
 
 
@@ -100,12 +100,12 @@ def plot_power_quality(metrics: pd.DataFrame, output_path: Path) -> None:
             f"MAE {mae:.1f}\nR2 {r2:.3f}",
             ha="center",
             va="bottom",
-            fontsize=7.8,
+            fontsize=3.9,
             fontweight="bold",
         )
     ax.set_ylim(0, max(maes) * 1.06)
 
-    fig.tight_layout(pad=0.8)
+    fig.tight_layout(pad=0.5)
     _save(fig, output_path)
 
 
@@ -156,18 +156,18 @@ def plot_uncertainty_quality(metrics: pd.DataFrame, output_path: Path) -> None:
         h1 + h2,
         l1 + l2,
         frameon=False,
-        loc="upper center",
-        ncol=2,
-        bbox_to_anchor=(0.5, 0.94),
-        columnspacing=0.9,
+        loc="center left",
+        ncol=1,
+        bbox_to_anchor=(1.01, 0.5),
+        columnspacing=0.6,
         handletextpad=0.4,
     )
 
     for bar in b1:
         ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), f"{bar.get_height():.2f}",
-                 ha="center", va="bottom", fontsize=7.2, fontweight="bold")
+                 ha="center", va="bottom", fontsize=3.6, fontweight="bold")
 
-    fig.tight_layout(pad=0.8)
+    fig.tight_layout(pad=0.5)
     _save(fig, output_path)
 
 
@@ -237,7 +237,7 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_path: Path) -> No
         ax2.plot(x, df["top1_share"], marker="o", color=PASTEL_COLORS[0], linewidth=2.0, label="Top-1 Share")
         ax2.set_ylabel("Top-1 Share")
         ax2.set_ylim(0, min(1.0, float(np.nanmax(df["top1_share"]) * 1.15)))
-        ax2.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, 0.94))
+        ax2.legend(frameon=False, loc="center left", bbox_to_anchor=(1.01, 0.5))
 
     best_idx = int(np.nanargmax(df["avg_ppw"].values))
     y_offset = float(df["avg_ppw"].max()) * 0.03
@@ -247,11 +247,11 @@ def plot_recommender_outcomes(summary_df: pd.DataFrame, output_path: Path) -> No
         "Best PPW",
         ha="center",
         va="bottom",
-        fontsize=7.4,
+        fontsize=3.7,
         fontweight="bold",
     )
 
-    fig.tight_layout(pad=0.8)
+    fig.tight_layout(pad=0.5)
     _save(fig, output_path)
 
 
