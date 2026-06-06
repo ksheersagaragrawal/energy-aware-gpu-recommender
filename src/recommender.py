@@ -49,8 +49,25 @@ ML_MEM_TYPE_CATEGORIES = [
 
 SOFT_THRESHOLD = 0.80
 
-# Shared canonical column names between GPU and game datasets — no translation
-# needed because both pipelines emit the same names.
+# Shared canonical column names between GPU and game datasets.
+SOFT_FILTER_MAP = {
+    "texture_rate": "texture_rate",
+    "pixel_rate": "pixel_rate",
+    "memory_bandwidth_gbs": "memory_bandwidth_gbs",
+    "tmus": "tmus",
+    "rops": "rops",
+}
+
+KNN_FEATURE_MAP = {
+    "texture_rate": ("texture_rate", "texture_rate"),
+    "pixel_rate": ("pixel_rate", "pixel_rate"),
+    "memory_bandwidth_gbs": ("memory_bandwidth_gbs", "memory_bandwidth_gbs"),
+    "tmus": ("tmus", "tmus"),
+    "rops": ("rops", "rops"),
+    "memory_speed_mhz": ("memory_speed_mhz", "memory_speed_mhz"),
+    "boost_clock_mhz": ("boost_clock_mhz", "boost_clock_mhz"),
+}
+
 KNN_FEATURES = [
     "texture_rate",
     "pixel_rate",

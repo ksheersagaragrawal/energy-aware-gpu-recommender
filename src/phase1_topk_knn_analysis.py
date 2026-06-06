@@ -23,7 +23,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.neighbors import NearestNeighbors
 
-from recommender import GAME_VECTORS, GPU_VECTORS, KNN_FEATURE_MAP, SOFT_FILTER_MAP, EPSILON
+try:
+    from src.recommender import GAME_VECTORS, GPU_VECTORS, KNN_FEATURE_MAP, SOFT_FILTER_MAP, EPSILON
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from recommender import GAME_VECTORS, GPU_VECTORS, KNN_FEATURE_MAP, SOFT_FILTER_MAP, EPSILON
 
 
 PREDICTIONS_PATH = "data/results/gpu_power_predictions.csv"
@@ -651,14 +654,14 @@ def _load_best_prediction_columns() -> Tuple[Optional[str], Optional[str]]:
 
     try:
         tdp_metrics = pd.read_csv(TDP_METRICS_PATH)
-        if not tdp_metrics.empty:
+        if not tdp_metrics.empty and "prediction_column_to_use" in tdp_metrics.columns:
             tdp_col = tdp_metrics.iloc[0]["prediction_column_to_use"]
     except FileNotFoundError:
         tdp_col = None
 
     try:
         psu_metrics = pd.read_csv(PSU_METRICS_PATH)
-        if not psu_metrics.empty:
+        if not psu_metrics.empty and "prediction_column_to_use" in psu_metrics.columns:
             psu_col = psu_metrics.iloc[0]["prediction_column_to_use"]
     except FileNotFoundError:
         psu_col = None
