@@ -128,25 +128,8 @@ Output: `models/gpu_performance_model.pkl`
 ### 4. Run the recommender
 
 ```bash
-# ML-based ranking (predicted G3D Mark per watt)
-python3 src/recommender.py --game "Cyberpunk 2077" --method ml --k 5
-
-# Static ranking (geometric mean perf score per watt)
-python3 src/recommender.py --game "Cyberpunk 2077" --method top_k --k 5
-
-# Use recommended requirements instead of minimum
-python3 src/recommender.py --game "Cyberpunk 2077" --method ml --mode recom --k 5
+python3 src/recommender.py --game "Cyberpunk 2077"
 ```
-
-**Arguments:**
-
-| Argument | Default | Description |
-|---|---|---|
-| `--game` | required | Game name (partial match supported) |
-| `--k` | 5 | Number of GPUs to return |
-| `--mode` | `min` | `min` or `recom` requirements |
-| `--method` | `top_k` | `top_k` (static) or `ml` (XGBoost) |
-| `--threshold` | 0.80 | Soft filter threshold (0–1) |
 
 ---
 
