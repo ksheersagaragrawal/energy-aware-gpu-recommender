@@ -24,29 +24,35 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 try:
-    from src.recommender import (
+    from src.recommender_utility import (
         EPSILON,
         GAME_VECTORS,
         GPU_VECTORS,
         KNN_FEATURE_MAP,
         SOFT_FILTER_MAP,
+        Phase1Config,
+        TopKRecommendationAnalyzer,
+        _attach_power_predictions,
+        _build_pair_features,
+        _utility_formula_scores,
         build_gpu_features_for_ml,
         load_ml_model,
     )
-    from src.phase1_topk_knn_analysis import Phase1Config, TopKRecommendationAnalyzer, _attach_power_predictions
-    from src.phase2_ml_utility_analysis import _build_pair_features, _utility_formula_scores
 except ImportError:  # pragma: no cover - direct script execution fallback
-    from recommender import (
+    from recommender_utility import (
         EPSILON,
         GAME_VECTORS,
         GPU_VECTORS,
         KNN_FEATURE_MAP,
         SOFT_FILTER_MAP,
+        Phase1Config,
+        TopKRecommendationAnalyzer,
+        _attach_power_predictions,
+        _build_pair_features,
+        _utility_formula_scores,
         build_gpu_features_for_ml,
         load_ml_model,
     )
-    from phase1_topk_knn_analysis import Phase1Config, TopKRecommendationAnalyzer, _attach_power_predictions
-    from phase2_ml_utility_analysis import _build_pair_features, _utility_formula_scores
 
 
 ROOT = Path(__file__).resolve().parent.parent
