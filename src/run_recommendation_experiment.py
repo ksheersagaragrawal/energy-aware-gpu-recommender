@@ -453,6 +453,27 @@ def _top1_share(names_series: pd.Series) -> float:
     return float(top1.value_counts(normalize=True).iloc[0])
 
 
+def _series_stats(values: pd.Series) -> Dict[str, float]:
+    clean = pd.to_numeric(values, errors="coerce").dropna()
+    if clean.empty:
+        return {"mean": float("nan"), "std": float("nan"), "min": float("nan"), "max": float("nan")}
+    return {
+        "mean": float(clean.mean()),
+        "std": float(clean.std()),
+        "min": float(clean.min()),
+        "max": float(clean.max()),
+    }
+
+
+def _pearson_corr(a: pd.Series, b: pd.Series) -> float:
+    a_clean = pd.to_numeric(a, errors="coerce")
+    b_clean = pd.to_numeric(b, errors="coerce")
+    valid = a_clean.notna() & b_clean.notna()
+    if valid.sum() < 2:
+        return float("nan")
+    return float(a_clean[valid].corr(b_clean[valid]))
+
+
 def _label_distribution_frame(label_counts: List[Dict[str, object]]) -> pd.DataFrame:
     if not label_counts:
         return pd.DataFrame(columns=["split", "game_name", "label_0", "label_1", "label_2", "label_3"])
@@ -468,6 +489,11 @@ class RecommendationExperiment:
         self.games_df = _prepare_games(config.requirements_mode)
         self.gpu_df = _prepare_gpus(config.scoring_mode)
         self.gpu_df["perf_score"] = self.gpu_df["perf_score_mode"].astype(float)
+        self.gpu_df[PPW_COL] = np.where(
+            self.gpu_df[TDP_USED_COL] > 0,
+            self.gpu_df["perf_score"] / self.gpu_df[TDP_USED_COL],
+            np.nan,
+        )
         _validate_feasible_inputs(self.games_df, self.gpu_df)
 
         self.analyzer = TopKRecommendationAnalyzer(
@@ -807,6 +833,208 @@ class RecommendationExperiment:
         }
 
 
+def _build_full_labels(
+    experiment: RecommendationExperiment,
+    game_row: pd.Series,
+) -> Tuple[pd.Series, pd.DataFrame, pd.Series, pd.DataFrame]:
+    feasible, affinity_distance = experiment._cached_feasible(game_row["name"])
+    if feasible.empty:
+        return pd.Series(dtype=int), feasible, affinity_distance, pd.DataFrame()
+
+    scored = _compute_base_scores(game_row, feasible, affinity_distance)
+    best_ppw = feasible[PPW_COL].max()
+    eff_regret = (best_ppw - feasible[PPW_COL]).fillna(best_ppw)
+    dist_vals = affinity_distance.fillna(affinity_distance.median())
+    objectives = np.column_stack([
+        -feasible[PPW_COL].values,
+        feasible[TDP_USED_COL].values,
+        feasible[PSU_USED_COL].values,
+        eff_regret.values,
+        dist_vals.values,
+    ])
+    pareto_mask = _compute_pareto_front(objectives)
+    labels = _assign_relevance_labels(scored["base_score"], pareto_mask)
+    return labels, feasible, affinity_distance, scored
+
+
+def run_scoring_diagnostic(output_dir: Path) -> Dict[str, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    static_exp = RecommendationExperiment(
+        ExperimentConfig(requirements_mode="recom", scoring_mode="static", output_dir=output_dir)
+    )
+    g3d_exp = RecommendationExperiment(
+        ExperimentConfig(requirements_mode="recom", scoring_mode="g3d", output_dir=output_dir)
+    )
+
+    static_scores = static_exp.gpu_df["perf_score"]
+    g3d_scores = g3d_exp.gpu_df["perf_score"]
+    g3d_pred = g3d_exp.gpu_df["pred_g3d"] if "pred_g3d" in g3d_exp.gpu_df.columns else pd.Series(dtype=float)
+
+    static_ppw = static_exp.gpu_df[PPW_COL]
+    g3d_ppw = g3d_exp.gpu_df[PPW_COL]
+
+    if not np.allclose(g3d_exp.gpu_df["perf_score"], g3d_exp.gpu_df["perf_score_mode"], equal_nan=True):
+        _log("warning: g3d perf_score does not exactly match perf_score_mode")
+
+    if np.allclose(g3d_exp.gpu_df["perf_score"], static_exp.gpu_df["perf_score"], equal_nan=True):
+        _log("warning: g3d perf_score matches static perf_score row-for-row")
+
+    test_games = sorted(static_exp.test_games)
+    overlap_rows = []
+    label_diff_rows = []
+    label_rows = []
+    examples = []
+
+    total_labels = 0
+    differing_labels = 0
+    games_with_any_label_diff = 0
+
+    for idx, game_name in enumerate(test_games):
+        game_row = static_exp.games_df[static_exp.games_df["name"] == game_name].iloc[0]
+
+        static_labels, static_feasible, _, _ = _build_full_labels(static_exp, game_row)
+        g3d_labels, g3d_feasible, _, _ = _build_full_labels(g3d_exp, game_row)
+
+        static_topk = static_feasible.sort_values(PPW_COL, ascending=False).head(static_exp.config.k_top)
+        g3d_topk = g3d_feasible.sort_values(PPW_COL, ascending=False).head(g3d_exp.config.k_top)
+
+        static_top5_names = static_topk["name"].tolist()
+        g3d_top5_names = g3d_topk["name"].tolist()
+        overlap_count = len(set(static_top5_names) & set(g3d_top5_names))
+        top1_same = bool(static_top5_names[:1] and g3d_top5_names[:1] and static_top5_names[0] == g3d_top5_names[0])
+
+        overlap_rows.append({
+            "game_name": game_name,
+            "static_top5": ", ".join(static_top5_names),
+            "g3d_top5": ", ".join(g3d_top5_names),
+            "overlap_count": overlap_count,
+            "top1_same": top1_same,
+        })
+
+        if idx < 5:
+            examples.append({
+                "game_name": game_name,
+                "static_top5": static_top5_names,
+                "g3d_top5": g3d_top5_names,
+                "overlap_count": overlap_count,
+            })
+
+        static_label_map = {gid: int(lbl) for gid, lbl in zip(static_feasible[GPU_ID_COL], static_labels.values)}
+        g3d_label_map = {gid: int(lbl) for gid, lbl in zip(g3d_feasible[GPU_ID_COL], g3d_labels.values)}
+        common_ids = [gid for gid in static_feasible[GPU_ID_COL].tolist() if gid in g3d_label_map]
+        for gid in common_ids:
+            total_labels += 1
+            s_lbl = static_label_map.get(gid)
+            g_lbl = g3d_label_map.get(gid)
+            if s_lbl != g_lbl:
+                differing_labels += 1
+
+        if any(static_label_map.get(gid) != g3d_label_map.get(gid) for gid in common_ids):
+            games_with_any_label_diff += 1
+
+        label_rows.append({
+            "game_name": game_name,
+            "static_label_0": int((static_labels == 0).sum()),
+            "static_label_1": int((static_labels == 1).sum()),
+            "static_label_2": int((static_labels == 2).sum()),
+            "static_label_3": int((static_labels == 3).sum()),
+            "g3d_label_0": int((g3d_labels == 0).sum()),
+            "g3d_label_1": int((g3d_labels == 1).sum()),
+            "g3d_label_2": int((g3d_labels == 2).sum()),
+            "g3d_label_3": int((g3d_labels == 3).sum()),
+        })
+
+    overlap_df = pd.DataFrame(overlap_rows)
+    overlap_csv = output_dir / "scoring_diagnostic_overlap.csv"
+    overlap_df.to_csv(overlap_csv, index=False)
+
+    static_perf_stats = _series_stats(static_scores)
+    g3d_perf_stats = _series_stats(g3d_scores)
+    g3d_pred_stats = _series_stats(g3d_pred)
+    static_ppw_stats = _series_stats(static_ppw)
+    g3d_ppw_stats = _series_stats(g3d_ppw)
+
+    static_vs_g3d_perf_corr = _pearson_corr(static_scores, g3d_scores)
+    static_vs_g3d_ppw_corr = _pearson_corr(static_ppw, g3d_ppw)
+    perf_diff_pct = float((static_scores.reset_index(drop=True) != g3d_scores.reset_index(drop=True)).mean() * 100.0)
+    ppw_diff_pct = float((static_ppw.reset_index(drop=True) != g3d_ppw.reset_index(drop=True)).mean() * 100.0)
+
+    identical_top5_pct = float((overlap_df["overlap_count"] == static_exp.config.k_top).mean() * 100.0)
+    identical_top1_pct = float(overlap_df["top1_same"].mean() * 100.0)
+    avg_overlap = float(overlap_df["overlap_count"].mean())
+
+    static_label_counts = {
+        "label_0": int(sum(row["static_label_0"] for row in label_rows)),
+        "label_1": int(sum(row["static_label_1"] for row in label_rows)),
+        "label_2": int(sum(row["static_label_2"] for row in label_rows)),
+        "label_3": int(sum(row["static_label_3"] for row in label_rows)),
+    }
+    g3d_label_counts = {
+        "label_0": int(sum(row["g3d_label_0"] for row in label_rows)),
+        "label_1": int(sum(row["g3d_label_1"] for row in label_rows)),
+        "label_2": int(sum(row["g3d_label_2"] for row in label_rows)),
+        "label_3": int(sum(row["g3d_label_3"] for row in label_rows)),
+    }
+
+    label_diff_pct = float((differing_labels / max(total_labels, 1)) * 100.0)
+    games_with_label_diff_pct = float((games_with_any_label_diff / max(len(test_games), 1)) * 100.0)
+
+    lines = [
+        "Scoring diagnostic summary",
+        f"Games evaluated: {len(test_games)}",
+        f"GPU rows: {len(static_exp.gpu_df)}",
+        "",
+        "Score-level diagnostics",
+        f"Static perf_score: mean={static_perf_stats['mean']:.6f} std={static_perf_stats['std']:.6f} min={static_perf_stats['min']:.6f} max={static_perf_stats['max']:.6f}",
+        f"G3D perf_score: mean={g3d_perf_stats['mean']:.6f} std={g3d_perf_stats['std']:.6f} min={g3d_perf_stats['min']:.6f} max={g3d_perf_stats['max']:.6f}",
+        f"G3D pred_g3d: mean={g3d_pred_stats['mean']:.6f} std={g3d_pred_stats['std']:.6f} min={g3d_pred_stats['min']:.6f} max={g3d_pred_stats['max']:.6f}",
+        f"Static vs G3D perf_score diff pct: {perf_diff_pct:.2f}%",
+        f"Static vs G3D perf_score Pearson r: {static_vs_g3d_perf_corr:.6f}",
+        f"Static PPW: mean={static_ppw_stats['mean']:.6f} std={static_ppw_stats['std']:.6f} min={static_ppw_stats['min']:.6f} max={static_ppw_stats['max']:.6f}",
+        f"G3D PPW: mean={g3d_ppw_stats['mean']:.6f} std={g3d_ppw_stats['std']:.6f} min={g3d_ppw_stats['min']:.6f} max={g3d_ppw_stats['max']:.6f}",
+        f"Static vs G3D PPW Pearson r: {static_vs_g3d_ppw_corr:.6f}",
+        "",
+        "Power-Top5 overlap diagnostics",
+        f"Average overlap@5: {avg_overlap:.6f}",
+        f"Identical top-5 sets: {identical_top5_pct:.2f}%",
+        f"Identical top-1 recommendations: {identical_top1_pct:.2f}%",
+        "Example games:",
+    ]
+
+    for example in examples:
+        lines.extend([
+            f"- {example['game_name']}",
+            f"  static: {example['static_top5']}",
+            f"  g3d: {example['g3d_top5']}",
+            f"  overlap_count: {example['overlap_count']}",
+        ])
+
+    lines.extend([
+        "",
+        "Label diagnostics",
+        f"Static label counts: {static_label_counts}",
+        f"G3D label counts: {g3d_label_counts}",
+        f"Label difference pct: {label_diff_pct:.2f}%",
+        f"Games with any label difference pct: {games_with_label_diff_pct:.2f}%",
+        "",
+        "Checks",
+        f"G3D perf_score is copied from perf_score_mode before PPW/ranking: {'yes' if np.allclose(g3d_exp.gpu_df['perf_score'], g3d_exp.gpu_df['perf_score_mode'], equal_nan=True) else 'no'}",
+        "Power-Top5 uses mode-specific PPW: yes",
+        "Labels use mode-specific utility values: yes",
+    ])
+
+    summary_path = output_dir / "scoring_diagnostic_summary.txt"
+    summary_path.write_text("\n".join(lines).rstrip() + "\n")
+
+    _log(f"diagnostic summary written: {summary_path}")
+    _log(f"diagnostic overlap csv written: {overlap_csv}")
+
+    return {
+        "summary": summary_path,
+        "overlap": overlap_csv,
+    }
+
+
 def _write_run_summary(root_dir: Path, mode_outputs: Dict[str, Dict[str, Path]], config: ExperimentConfig) -> Path:
     lines = [
         "Recommendation experiment summary",
@@ -868,7 +1096,15 @@ def main() -> None:
         default=str(DEFAULT_OUTPUT_DIR),
         help="Root output directory for both scoring modes",
     )
+    parser.add_argument(
+        "--diagnose-scoring",
+        action="store_true",
+        help="Run scoring diagnostics only and skip the full experiment",
+    )
     args = parser.parse_args()
+    if args.diagnose_scoring:
+        run_scoring_diagnostic(Path(args.output_dir))
+        return
     run_experiment(Path(args.output_dir))
 
 

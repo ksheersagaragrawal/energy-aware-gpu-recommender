@@ -1,0 +1,50 @@
+Scoring diagnostic summary
+Games evaluated: 1459
+GPU rows: 1441
+
+Score-level diagnostics
+Static perf_score: mean=0.104820 std=0.147503 min=0.000016 max=0.874044
+G3D perf_score: mean=0.107476 std=0.176064 min=0.000000 max=1.000000
+G3D pred_g3d: mean=-1057.470215 std=7303.702637 min=-5515.935059 max=35967.347656
+Static vs G3D perf_score diff pct: 100.00%
+Static vs G3D perf_score Pearson r: 0.946412
+Static PPW: mean=0.000977 std=0.000921 min=0.000002 max=0.008057
+G3D PPW: mean=0.000957 std=0.001400 min=0.000000 max=0.015565
+Static vs G3D PPW Pearson r: 0.917795
+
+Power-Top5 overlap diagnostics
+Average overlap@5: 2.722413
+Identical top-5 sets: 0.00%
+Identical top-1 recommendations: 72.58%
+Example games:
+- .hack//G.U. Last Recode
+  static: ['Radeon RX 7400', 'L4', 'RTX PRO 4000 Blackwell SFF', 'RTX 4000 SFF Ada Generation', 'RTX PRO 2000 Blackwell']
+  g3d: ['RTX PRO 4000 Blackwell SFF', 'RTX PRO 2000 Blackwell', 'RTX 4000 SFF Ada Generation', 'Radeon RX 7400', 'RTX 3500 Embedded Ada Generation']
+  overlap_count: 4
+- 10 Second Ninja X
+  static: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Radeon RX 7400', 'Steam Deck OLED GPU', 'Steam Deck GPU']
+  g3d: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Ryzen Z2 GPU', 'Ryzen Z1 Extreme GPU', 'RTX PRO 4000 Blackwell SFF']
+  overlap_count: 2
+- 12 is better than 6
+  static: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Radeon RX 7400', 'Steam Deck OLED GPU', 'Steam Deck GPU']
+  g3d: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Ryzen Z2 GPU', 'Ryzen Z1 Extreme GPU', 'RTX PRO 4000 Blackwell SFF']
+  overlap_count: 2
+- 18 Wheels of Steel: Extreme Trucker
+  static: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Radeon RX 7400', 'Steam Deck GPU', 'Steam Deck OLED GPU']
+  g3d: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Ryzen Z2 GPU', 'Ryzen Z1 Extreme GPU', 'RTX PRO 4000 Blackwell SFF']
+  overlap_count: 2
+- 18 wheels of steel american long haul
+  static: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Radeon RX 7400', 'Ryzen Z2 GPU', 'Radeon PRO W6300']
+  g3d: ['Ryzen AI Z2 Extreme GPU', 'Ryzen Z2 Extreme GPU', 'Ryzen Z2 GPU', 'Ryzen Z1 Extreme GPU', 'RTX PRO 4000 Blackwell SFF']
+  overlap_count: 3
+
+Label diagnostics
+Static label counts: {'label_0': 250255, 'label_1': 219125, 'label_2': 208250, 'label_3': 109085}
+G3D label counts: {'label_0': 250210, 'label_1': 219423, 'label_2': 208190, 'label_3': 108892}
+Label difference pct: 25.85%
+Games with any label difference pct: 100.00%
+
+Checks
+G3D perf_score is copied from perf_score_mode before PPW/ranking: yes
+Power-Top5 uses mode-specific PPW: yes
+Labels use mode-specific utility values: yes

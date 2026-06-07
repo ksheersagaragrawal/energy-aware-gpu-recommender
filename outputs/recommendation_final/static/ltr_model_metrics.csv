@@ -1,0 +1,2 @@
+model,backend,train_time_sec,inference_time_sec,ndcg@5,recall_label3@5,model_role
+XGBRanker,cuda,1134.4581909179688,4.697998046875,0.9998447754881761,1.0,ltr_ranker
