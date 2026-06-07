@@ -93,7 +93,7 @@ The performance score is a static hardware-based proxy.
 
 The goal is to study GPU hardware behavior in a simple and interpretable way.
 
-## Usage
+## Recommender Pipeline Usage
 
 ### 1. Scrape PassMark benchmarks
 
@@ -128,7 +128,7 @@ Output: `models/gpu_performance_model.pkl`
 ### 4. Run the recommender
 
 ```bash
-python3 src/recommender.py --game "Cyberpunk 2077"
+python3 src/recommender.py --game "Cyberpunk 2077" --method ml --mode min --k 5 --threshold 0.80
 ```
 
 ---
