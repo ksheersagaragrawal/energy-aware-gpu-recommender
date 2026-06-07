@@ -142,6 +142,29 @@ The goal is to build a simple and interpretable energy-aware GPU recommender usi
 
 ---
 
+## Final Recommendation Experiment
+
+The report uses a single unified experiment runner that evaluates both scoring modes:
+
+- `static` — interpretable hardware-based performance score
+- `g3d` — predicted PassMark G3D score from the trained model
+
+### Final command
+
+```bash
+python -m src.run_recommendation_experiment --output-dir outputs/recommendation_final
+```
+
+### Diagnostic command
+
+```bash
+python -m src.run_recommendation_experiment --diagnose-scoring --output-dir outputs/recommendation_cleanup_test
+```
+
+This diagnostic checks static-vs-G3D score correlation, PPW correlation, Power-Top5 overlap, and label differences without running the full LTR training path.
+
+---
+
 ## ML Recommender
 
 An ML-based recommendation method has been added on top of the existing pipeline. Instead of ranking GPUs using the hand-crafted geometric mean performance score, it uses an **XGBoost regression model** trained on real benchmark data to predict GPU performance.

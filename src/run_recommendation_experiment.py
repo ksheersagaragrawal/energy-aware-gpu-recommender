@@ -1038,25 +1038,28 @@ def run_scoring_diagnostic(output_dir: Path) -> Dict[str, Path]:
 def _write_run_summary(root_dir: Path, mode_outputs: Dict[str, Dict[str, Path]], config: ExperimentConfig) -> Path:
     lines = [
         "Recommendation experiment summary",
+        f"Objective: Evaluate a pre-deployment, static-feature GPU recommender that first enforces workload feasibility and then compares direct PPW ranking against learning-to-rank under both static-score and G3D-score settings.",
         f"Command: python -m src.run_recommendation_experiment --output-dir {config.output_dir}",
+        f"Run time: {time.strftime('%Y-%m-%d %H:%M:%S %Z')}",
         f"Scoring modes: static, g3d",
         f"Requirements mode: {config.requirements_mode}",
-        f"Games split: 80/20 by game name, random_seed={config.random_seed}",
+        f"Train/test split: by game name, 80/20, random_seed={config.random_seed}",
         f"Top-k: {config.k_top}",
         f"Soft threshold: {config.soft_threshold:.2f}",
+        "Final methods compared: Power-Top5, LTR-Top5",
         "",
     ]
 
     for mode, outputs in mode_outputs.items():
         lines.extend([
             f"[{mode}]",
-            f"  per_game_top5: {outputs['per_game']}",
-            f"  aggregate_summary: {outputs['summary']}",
-            f"  method_comparison: {outputs['comparison']}",
-            f"  ltr_model_metrics: {outputs['metrics']}",
-            f"  ltr_feature_importance: {outputs.get('feature_importance', Path(''))}",
-            f"  heatmap: {outputs['heatmap']}",
-            f"  label_distribution: {outputs['label_distribution']}",
+            f"  per_game_top5: {outputs['per_game']}  # per-game Power-Top5 and LTR-Top5 results",
+            f"  aggregate_summary: {outputs['summary']}  # mode-level PPW, TDP, PSU, regret, unique GPU count, top-1 share, NDCG@5, Recall@5",
+            f"  method_comparison: {outputs['comparison']}  # Power-Top5 vs LTR-Top5 comparison table",
+            f"  ltr_model_metrics: {outputs['metrics']}  # ranker training and evaluation metrics",
+            f"  ltr_feature_importance: {outputs.get('feature_importance', Path(''))}  # feature importance summary",
+            f"  heatmap: {outputs['heatmap']}  # method comparison heatmap",
+            f"  label_distribution: {outputs['label_distribution']}  # label counts by game",
             "",
         ])
 

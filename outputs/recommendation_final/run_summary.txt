@@ -1,0 +1,25 @@
+Recommendation experiment summary
+Command: python -m src.run_recommendation_experiment --output-dir outputs/recommendation_final
+Scoring modes: static, g3d
+Requirements mode: recom
+Games split: 80/20 by game name, random_seed=42
+Top-k: 5
+Soft threshold: 0.80
+
+[static]
+  per_game_top5: outputs/recommendation_final/static/per_game_top5.csv
+  aggregate_summary: outputs/recommendation_final/static/aggregate_summary.csv
+  method_comparison: outputs/recommendation_final/method_comparison_static.csv
+  ltr_model_metrics: outputs/recommendation_final/static/ltr_model_metrics.csv
+  ltr_feature_importance: outputs/recommendation_final/static/ltr_feature_importance.csv
+  heatmap: outputs/recommendation_final/static/metric_heatmap.png
+  label_distribution: outputs/recommendation_final/static/label_distribution.csv
+
+[g3d]
+  per_game_top5: outputs/recommendation_final/g3d/per_game_top5.csv
+  aggregate_summary: outputs/recommendation_final/g3d/aggregate_summary.csv
+  method_comparison: outputs/recommendation_final/method_comparison_g3d.csv
+  ltr_model_metrics: outputs/recommendation_final/g3d/ltr_model_metrics.csv
+  ltr_feature_importance: outputs/recommendation_final/g3d/ltr_feature_importance.csv
+  heatmap: outputs/recommendation_final/g3d/metric_heatmap.png
+  label_distribution: outputs/recommendation_final/g3d/label_distribution.csv
