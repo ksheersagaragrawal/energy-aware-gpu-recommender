@@ -1,99 +1,26 @@
-"""GPU recommender: filters feasible GPUs for a game and ranks by performance per watt.
-
-Two ranking methods:
-
-  top_k  — hard/soft filter feasible GPUs, rank by perf_score / tdp_w
-  knn    — find k nearest GPUs to the game's normalized feature vector (euclidean distance)
-
-Hard filters  — GPU must meet or exceed the game's minimum requirement:
-    memory_mb, direct_x
-
-Soft filters  — GPU must meet at least SOFT_THRESHOLD (80%) of the requirement:
-    texture_rate, pixel_rate, memory_bandwidth_gbs, tmus, rops
-
-Usage:
-    python src/recommender.py --game "Cyberpunk 2077" --k 5
-    python src/recommender.py --game "Cyberpunk 2077" --k 5 --method knn
-    python src/recommender.py --game "Cyberpunk 2077" --k 5 --mode recom --threshold 0.7
+"""
+Energy-aware GPU recommender.
+Output: top GPU recommendations for a given game
 """
 
 import argparse
 import pickle
-from pathlib import Path
-import warnings
-
 import numpy as np
 import pandas as pd
-from sklearn.neighbors import NearestNeighbors
 
-try:
-    from sklearn.base import InconsistentVersionWarning
-except Exception:
-    InconsistentVersionWarning = None
-
-ROOT = Path(__file__).resolve().parent.parent
-
-GAME_VECTORS = {
-    "min":   str(ROOT / "data/vectors/game_vectors_min.csv"),
-    "recom": str(ROOT / "data/vectors/game_vectors_recom.csv"),
+game_vectors = {
+    "min":   "data/vectors/game_vectors_min.csv",
+    "recom": "data/vectors/game_vectors_recom.csv",
 }
-GPU_VECTORS  = str(ROOT / "data/vectors/gpu_power_vectors.csv")
-MODEL_PATH   = str(ROOT / "models/gpu_performance_model.pkl")
+gpu_vectors    = "data/vectors/gpu_power_vectors.csv"
+model_path     = "models/gpu_performance_model.pkl"
+soft_threshold = 0.80
 
-ML_MEM_TYPE_CATEGORIES = [
-    "DDR", "DDR2", "DDR3", "SDR",
-    "GDDR2", "GDDR3", "GDDR4", "GDDR5", "GDDR5X",
-    "GDDR6", "GDDR6X", "GDDR7",
-    "HBM", "HBM2", "HBM2e", "HBM3",
-]
-
-SOFT_THRESHOLD = 0.80
-
-# Shared canonical column names between GPU and game datasets.
-SOFT_FILTER_MAP = {
-    "texture_rate": "texture_rate",
-    "pixel_rate": "pixel_rate",
-    "memory_bandwidth_gbs": "memory_bandwidth_gbs",
-    "tmus": "tmus",
-    "rops": "rops",
-}
-
-KNN_FEATURE_MAP = {
-    "texture_rate": ("texture_rate", "texture_rate"),
-    "pixel_rate": ("pixel_rate", "pixel_rate"),
-    "memory_bandwidth_gbs": ("memory_bandwidth_gbs", "memory_bandwidth_gbs"),
-    "tmus": ("tmus", "tmus"),
-    "rops": ("rops", "rops"),
-    "memory_speed_mhz": ("memory_speed_mhz", "memory_speed_mhz"),
-    "boost_clock_mhz": ("boost_clock_mhz", "boost_clock_mhz"),
-}
-
-KNN_FEATURES = [
-    "texture_rate",
-    "pixel_rate",
-    "memory_bandwidth_gbs",
-    "tmus",
-    "rops",
-    "memory_speed_mhz",
-    "boost_clock_mhz",
-]
-
-SOFT_FILTER_COLS = ["texture_rate", "pixel_rate", "memory_bandwidth_gbs", "tmus", "rops"]
-
-EPSILON = 1e-6
-
-DISPLAY_COLS       = ["brand", "name", "memory_mb", "direct_x", "tdp_w", "perf_score", "perf_per_watt"]
-DISPLAY_COLS_KNN   = ["brand", "name", "memory_mb", "direct_x", "tdp_w", "perf_score", "distance"]
-DISPLAY_COLS_ML    = ["brand", "name", "memory_mb", "direct_x", "tdp_w", "pred_g3d", "pred_g3d_per_watt"]
+soft_filter_cols = ["texture_rate", "pixel_rate", "memory_bandwidth_gbs", "tmus", "rops"]
 
 
-def load_data(mode: str):
-    games = pd.read_csv(GAME_VECTORS[mode])
-    gpus  = pd.read_csv(GPU_VECTORS)
-    return games, gpus
-
-
-def find_game(games: pd.DataFrame, game_name: str) -> pd.Series:
+# looks up the game by exact name first, falls back to partial match
+def find_game(games, game_name):
     exact = games[games["name"].str.lower() == game_name.lower()]
     if not exact.empty:
         return exact.iloc[0]
@@ -102,202 +29,121 @@ def find_game(games: pd.DataFrame, game_name: str) -> pd.Series:
     if partial.empty:
         raise ValueError(f"No game found matching '{game_name}'.")
     if len(partial) > 1:
-        print(f"[find_game] {len(partial)} partial matches — using: {partial['name'].iloc[0]!r}")
+        print(f"{len(partial)} partial matches — using: {partial['name'].iloc[0]!r}")
     return partial.iloc[0]
 
 
-def hard_filter(gpus: pd.DataFrame, game: pd.Series) -> pd.DataFrame:
-    mask = pd.Series(True, index=gpus.index)
-
+# removes GPUs that don't meet the game's minimum VRAM and DirectX requirements
+def hard_filter(gpus, game):
+    mask     = pd.Series(True, index=gpus.index)
     vram_req = game.get("min_vram_mb")
+    dx_req   = game.get("min_direct_x")
+
     if pd.notna(vram_req) and vram_req > 0:
         mask &= gpus["memory_mb"] >= vram_req
-
-    dx_req = game.get("min_direct_x")
     if pd.notna(dx_req) and dx_req > 0:
         mask &= gpus["direct_x"] >= dx_req
 
-    result = gpus[mask].copy()
-    print(f"[hard_filter]  {mask.sum():4d} / {len(gpus)} GPUs pass  "
-          f"(vram>={vram_req} MB, directx>={dx_req})")
-    return result
+    print(f"[hard_filter]  {mask.sum():4d} / {len(gpus)} GPUs pass  (vram>={vram_req} MB, directx>={dx_req})")
+    return gpus[mask].copy()
 
 
-def soft_filter(gpus: pd.DataFrame, game: pd.Series, threshold: float) -> pd.DataFrame:
-    mask = pd.Series(True, index=gpus.index)
-
+# removes GPUs that fall below the threshold percentage of the game's throughput requirements
+def soft_filter(gpus, game, threshold):
+    mask    = pd.Series(True, index=gpus.index)
     applied = []
-    for col in SOFT_FILTER_COLS:
+
+    for col in soft_filter_cols:
         req = game.get(col)
         if pd.isna(req) or req <= 0:
             continue
         min_val = req * threshold
-        mask &= gpus[col] >= min_val
+        mask   &= gpus[col] >= min_val
         applied.append(f"{col}>={min_val:.1f}")
 
-    result = gpus[mask].copy()
-    print(f"[soft_filter]  {mask.sum():4d} / {len(gpus)} GPUs pass  "
-          f"(threshold={threshold:.0%}, filters: {', '.join(applied)})")
+    print(f"[soft_filter]  {mask.sum():4d} / {len(gpus)} GPUs pass  (threshold={threshold:.0%}, filters: {', '.join(applied)})")
+    return gpus[mask].copy()
+
+
+# builds the feature matrix the XGBoost model expects — reads pre-encoded memory type columns + median-fills continuous specs
+def prepare_features(gpus, feature_cols, mem_type_cols):
+    df = gpus.copy()
+
+    # model uses "mem_gddr6" style names; gpu vectors have "memory_type_GDDR6" style — map between them
+    for col in mem_type_cols:
+        source = "memory_type_" + col.replace("mem_", "").upper()
+        df[col] = df[source].fillna(0).astype(int) if source in df.columns else 0
+
+    for col in [c for c in feature_cols if not c.startswith("mem_")]:
+        df[col] = df[col].fillna(df[col].median()) if col in df.columns else 0.0
+
+    return np.nan_to_num(df[feature_cols].values.astype(float), nan=0.0)
+
+
+# ranks filtered GPUs by pre-computed perf_score / TDP and returns the top k
+def recommend_top_k(game, gpus, k, threshold):
+    feasible = hard_filter(gpus, game)
+    feasible = soft_filter(feasible, game, threshold)
+
+    if feasible.empty:
+        print("No GPUs passed all filters.")
+        return pd.DataFrame()
+
+    feasible["perf_per_watt"] = feasible["perf_score"] / feasible["tdp_w"]
+    result = feasible.sort_values("perf_per_watt", ascending=False).head(k)
+    result = result[["brand", "name", "memory_mb", "direct_x", "tdp_w", "perf_score", "perf_per_watt"]].reset_index(drop=True)
+    result.index += 1
+
+    print(f"\nTop-{k} GPUs by performance per watt:")
+    print(result.to_string())
     return result
 
 
-def rank(gpus: pd.DataFrame) -> pd.DataFrame:
-    gpus = gpus.copy()
-    gpus["perf_per_watt"] = gpus["perf_score"] / gpus["tdp_w"]
-    return gpus.sort_values("perf_per_watt", ascending=False)
-
-
-def recommend_top_k(game: pd.Series, gpus: pd.DataFrame, k: int, threshold: float) -> pd.DataFrame:
+# ranks filtered GPUs by XGBoost predicted G3D Mark / TDP and returns the top k
+def recommend_ml(game, gpus, k, threshold, payload):
     feasible = hard_filter(gpus, game)
     feasible = soft_filter(feasible, game, threshold)
 
     if feasible.empty:
-        print("\nNo GPUs passed all filters.")
+        print("No GPUs passed all filters.")
         return pd.DataFrame()
 
-    ranked = rank(feasible)
-    ranked["perf_per_watt"] = ranked["perf_score"] / ranked["tdp_w"]
-    top_k  = ranked.head(k)[DISPLAY_COLS].reset_index(drop=True)
-    top_k.index += 1
-
-    print(f"\nTop-{k} GPUs by performance per watt:")
-    print(top_k.to_string())
-    return top_k
-
-
-def recommend_knn(game: pd.Series, gpus: pd.DataFrame, k: int) -> pd.DataFrame:
-    game_vec = []
-    gpu_matrix = []
-
-    for col in KNN_FEATURES:
-        gpu_vals = gpus[col].values.astype(float)
-        game_val = float(game.get(col) or 0)
-
-        # Shared min/max across both datasets for this feature
-        combined = np.concatenate([gpu_vals[~np.isnan(gpu_vals)], [game_val]])
-        f_min, f_max = combined.min(), combined.max()
-
-        if f_max > f_min:
-            gpu_norm  = np.where(np.isnan(gpu_vals), 0.0,
-                                 np.clip((gpu_vals - f_min) / (f_max - f_min), EPSILON, 1.0))
-            game_norm = 0.0 if np.isnan(game_val) else float(
-                np.clip((game_val - f_min) / (f_max - f_min), EPSILON, 1.0))
-        else:
-            gpu_norm  = np.where(np.isnan(gpu_vals), 0.0, 1.0)
-            game_norm = 0.0 if np.isnan(game_val) else 1.0
-
-        gpu_matrix.append(gpu_norm)
-        game_vec.append(game_norm)
-
-    gpu_matrix = np.column_stack(gpu_matrix)
-    game_vec   = np.array(game_vec, dtype=float).reshape(1, -1)
-
-    nn = NearestNeighbors(n_neighbors=min(k, len(gpus)), metric="euclidean")
-    nn.fit(gpu_matrix)
-    distances, indices = nn.kneighbors(game_vec)
-
-    result = gpus.iloc[indices[0]].copy()
-    result["distance"] = distances[0]
-    result = result.reset_index(drop=True)
-    result.index += 1
-
-    print(f"\nTop-{k} GPUs by nearest neighbor (jointly normalized, euclidean distance):")
-    print(result[DISPLAY_COLS_KNN].to_string())
-    return result[DISPLAY_COLS_KNN]
-
-
-def load_ml_model():
-    with open(MODEL_PATH, "rb") as f:
-        if InconsistentVersionWarning is None:
-            return pickle.load(f)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
-            return pickle.load(f)
-
-
-def build_gpu_features_for_ml(gpus: pd.DataFrame, feature_cols: list, mem_type_cols: list) -> np.ndarray:
-    """Construct the feature matrix expected by the ML model from the GPU vectors dataframe."""
-    continuous_cols = [c for c in feature_cols if not c.startswith("mem_")]
-    df = gpus.copy()
-
-    # One-hot encode memory type to match training format
-    raw_mem_col = "memory_type_raw" if "memory_type_raw" in df.columns else "memory_type"
-    for col in mem_type_cols:
-        cat = col[4:].upper()  # strip "mem_" prefix, e.g. "mem_gddr6" → "GDDR6"
-        if raw_mem_col in df.columns:
-            df[col] = (df[raw_mem_col].astype(str).str.upper() == cat).astype(int)
-        else:
-            df[col] = 0
-
-    # Fill missing continuous features with their median
-    for col in continuous_cols:
-        if col in df.columns and df[col].isna().any():
-            df[col] = df[col].fillna(df[col].median())
-        elif col not in df.columns:
-            df[col] = 0.0
-
-    return df[feature_cols].values.astype(float)
-
-
-def recommend_ml(game: pd.Series, gpus: pd.DataFrame, k: int,
-                 threshold: float, payload: dict) -> pd.DataFrame:
-    """Filter by game requirements, predict G3D Mark via ML, rank by G3D/TDP."""
-    feasible = hard_filter(gpus, game)
-    feasible = soft_filter(feasible, game, threshold)
-
-    if feasible.empty:
-        print("\nNo GPUs passed all filters.")
-        return pd.DataFrame()
-
-    feature_cols  = payload["feature_cols"]
-    mem_type_cols = payload["mem_type_cols"]
-    model         = payload["model"]
-
-    X = build_gpu_features_for_ml(feasible, feature_cols, mem_type_cols)
-
-    # Replace any remaining NaNs with 0 before prediction
-    X = np.nan_to_num(X, nan=0.0)
-
-    feasible = feasible.copy()
-    feasible["pred_g3d"]          = model.predict(X)
+    feasible["pred_g3d"]          = payload["model"].predict(prepare_features(feasible, payload["feature_cols"], payload["mem_type_cols"]))
     feasible["pred_g3d_per_watt"] = feasible["pred_g3d"] / feasible["tdp_w"]
 
-    ranked = feasible.sort_values("pred_g3d_per_watt", ascending=False).head(k)
-    ranked = ranked[DISPLAY_COLS_ML].reset_index(drop=True)
-    ranked.index += 1
+    result = feasible.sort_values("pred_g3d_per_watt", ascending=False).head(k)
+    result = result[["brand", "name", "memory_mb", "direct_x", "tdp_w", "pred_g3d", "pred_g3d_per_watt"]].reset_index(drop=True)
+    result.index += 1
 
     print(f"\nTop-{k} GPUs by predicted G3D Mark per watt (ML):")
-    print(ranked.to_string())
-    return ranked
+    print(result.to_string())
+    return result
 
 
-def recommend(game_name: str, k: int = 5, mode: str = "min",
-              method: str = "top_k", threshold: float = SOFT_THRESHOLD) -> pd.DataFrame:
-    games, gpus = load_data(mode)
-    game = find_game(games, game_name)
+# main entry point — loads data, finds the game, and dispatches to the right method
+def recommend(game_name, k=5, mode="min", method="top_k", threshold=soft_threshold):
+    games = pd.read_csv(game_vectors[mode])
+    gpus  = pd.read_csv(gpu_vectors)
+    game  = find_game(games, game_name)
 
     print(f"\nGame   : {game['name']}")
     print(f"Mode   : {mode} requirements")
     print(f"Method : {method}\n")
 
-    if method == "knn":
-        return recommend_knn(game, gpus, k)
     if method == "ml":
-        payload = load_ml_model()
+        with open(model_path, "rb") as f:
+            payload = pickle.load(f)
         return recommend_ml(game, gpus, k, threshold, payload)
     return recommend_top_k(game, gpus, k, threshold)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Energy-aware GPU recommender")
-    parser.add_argument("--game",      required=True,                      help="Game name (partial match supported)")
-    parser.add_argument("--k",         type=int,   default=5,              help="Number of GPUs to return (default: 5)")
-    parser.add_argument("--mode",      choices=["min", "recom"],           default="min",
-                        help="Use minimum or recommended game requirements (default: min)")
-    parser.add_argument("--method",    choices=["top_k", "knn", "ml"],     default="top_k",
-                        help="Ranking method: top_k (filter+perf/watt), knn, or ml (default: top_k)")
-    parser.add_argument("--threshold", type=float, default=SOFT_THRESHOLD,
-                        help="Soft filter threshold 0-1, only used with top_k (default: 0.80)")
+    parser.add_argument("--game",      required=True,                           help="Game name (partial match supported)")
+    parser.add_argument("--k",         type=int,   default=5,                   help="Number of GPUs to return (default: 5)")
+    parser.add_argument("--mode",      default="min",   choices=["min", "recom"], help="Use minimum or recommended requirements (default: min)")
+    parser.add_argument("--method",    default="top_k", choices=["top_k", "ml"], help="Ranking method (default: top_k)")
+    parser.add_argument("--threshold", type=float, default=soft_threshold,        help="Soft filter threshold 0-1 (default: 0.80)")
     args = parser.parse_args()
 
     recommend(args.game, k=args.k, mode=args.mode, method=args.method, threshold=args.threshold)

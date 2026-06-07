@@ -93,8 +93,54 @@ The performance score is a static hardware-based proxy.
 
 The goal is to study GPU hardware behavior in a simple and interpretable way.
 
+## Recommender Pipeline Usage
+
+### 1. Scrape PassMark benchmarks
+
+Fetches GPU G3D Mark scores from PassMark and matches them against the GPU specs dataset.
+
+```bash
+python3 src/scrape_passmark.py
+```
+
+Output: `data/raw/passmark_benchmarks.csv`
+
+### 2. Build training dataset
+
+Joins PassMark scores with GPU specs and one-hot encodes memory types.
+
+```bash
+python3 src/build_benchmark_dataset.py
+```
+
+Output: `data/training/gpu_benchmark_dataset.csv`
+
+### 3. Train the XGBoost model
+
+Trains a regression model to predict G3D Mark from hardware specs.
+
+```bash
+python3 src/train_ml_recommender.py
+```
+
+Output: `models/gpu_performance_model.pkl`
+
+### 4. Run the recommender
+
+```bash
+python3 src/recommender.py --game "Cyberpunk 2077" --method ml --mode min --k 5 --threshold 0.80
+```
+
+---
+
 ## Unified Recommendation Experiment
 
 The command `python3 -m src.run_recommendation_experiment --output-dir outputs/recommendation_final` runs the report-aligned GPU recommendation experiment for both static and G3D scoring modes, using the same feasibility filters and train/test split.
 
 It also writes a `run_summary.txt` file in the output directory that logs the exact command and the main experiment settings.
+
+## Power-Model Ablation
+
+The command `python3 -m src.ablation_power_models --output-dir data/results` runs the power-model feature ablation study used in the report.
+
+It compares feature subsets for the TDP and PSU prediction models and writes the ablation tables into `data/results/`.

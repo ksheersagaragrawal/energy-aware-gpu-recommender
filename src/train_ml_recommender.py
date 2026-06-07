@@ -1,104 +1,64 @@
 """
-Trains an XGBoost model to predict GPU G3D Mark (PassMark benchmark score)
-from hardware specs.
+Trains an XGBoost regression model to predict GPU G3D Mark score from
+hardware specifications.
 
-At recommendation time:
-  - Hard/soft filter GPUs by game requirements
-  - Predict G3D Mark for each passing GPU
-  - Rank by predicted_G3D / TDP  (energy-efficient performance)
-
-Model is saved to: models/gpu_performance_model.pkl
-
-Usage:
-    python src/train_ml_recommender.py
+Output: models/gpu_performance_model.pkl
 """
 
 import pickle
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import xgboost as xgb
 
-ROOT           = Path(__file__).resolve().parent.parent
-DATASET_PATH   = ROOT / "data" / "training" / "gpu_benchmark_dataset.csv"
-MODELS_DIR     = ROOT / "models"
-MODEL_PATH     = MODELS_DIR / "gpu_performance_model.pkl"
+dataset_path = "data/training/gpu_benchmark_dataset.csv"
+model_path   = "models/gpu_performance_model.pkl"
 
-MEMORY_TYPE_CATEGORIES = [
+memory_types = [
     "DDR", "DDR2", "DDR3", "SDR",
     "GDDR2", "GDDR3", "GDDR4", "GDDR5", "GDDR5X",
     "GDDR6", "GDDR6X", "GDDR7",
     "HBM", "HBM2", "HBM2e", "HBM3",
 ]
 
-CONTINUOUS_FEATURES = [
-    "process_nm",
-    "tmus",
-    "rops",
-    "texture_rate",
-    "pixel_rate",
-    "direct_x",
-    "memory_mb",
-    "memory_speed_mhz",
-    "memory_bandwidth_gbs",
-    "tdp_w",
+continuous_features = [
+    "process_nm", "tmus", "rops", "texture_rate", "pixel_rate",
+    "direct_x", "memory_mb", "memory_speed_mhz", "memory_bandwidth_gbs", "tdp_w",
 ]
 
-MEM_TYPE_FEATURES = [f"mem_{c.lower()}" for c in MEMORY_TYPE_CATEGORIES]
-ALL_FEATURES      = CONTINUOUS_FEATURES + MEM_TYPE_FEATURES
-TARGET            = "g3d_mark"
+mem_features = [f"mem_{m.lower()}" for m in memory_types]
+all_features = continuous_features + mem_features
 
 
-def load_and_split(test_size=0.2, random_state=42):
-    df = pd.read_csv(DATASET_PATH)
-    print(f"Dataset: {len(df)} GPUs, {df.columns.tolist()}")
+# loads the training dataset, fills missing values, and splits into train/test
+def load_and_split():
+    df = pd.read_csv(dataset_path)
+    df = df.dropna(subset=["g3d_mark", "texture_rate", "pixel_rate", "tmus", "rops", "tdp_w"])
 
-    # Fill missing memory type one-hots with 0
-    for col in MEM_TYPE_FEATURES:
-        if col not in df.columns:
-            df[col] = 0
-        else:
-            df[col] = df[col].fillna(0)
+    df[mem_features]        = df[mem_features].fillna(0)
+    df[continuous_features] = df[continuous_features].apply(lambda col: col.fillna(col.median()))
 
-    # Drop rows missing target or critical continuous features
-    df = df.dropna(subset=[TARGET] + ["texture_rate", "pixel_rate", "tmus", "rops", "tdp_w"])
-    print(f"After dropna: {len(df)} rows")
+    X = df[all_features].values.astype(float)
+    y = df["g3d_mark"].values.astype(float)
 
-    # Fill remaining missing continuous features with column median
-    for col in CONTINUOUS_FEATURES:
-        if df[col].isna().any():
-            df[col] = df[col].fillna(df[col].median())
-
-    X = df[ALL_FEATURES].values.astype(float)
-    y = df[TARGET].values.astype(float)
-
-    X_train, X_test, y_train, y_test, idx_train, idx_test = train_test_split(
-        X, y, df.index, test_size=test_size, random_state=random_state
-    )
-    print(f"Train: {len(X_train)}  Test: {len(X_test)}")
-    return X_train, X_test, y_train, y_test, df
+    return train_test_split(X, y, test_size=0.2, random_state=42)
 
 
+# prints MAE, RMSE, and R² for a given set of predictions
 def evaluate(name, y_true, y_pred):
     mae  = mean_absolute_error(y_true, y_pred)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     r2   = r2_score(y_true, y_pred)
-    print(f"  {name:30s}  MAE={mae:7.1f}  RMSE={rmse:7.1f}  R²={r2:.4f}")
+    print(f"  {name:6s}  MAE={mae:7.1f}  RMSE={rmse:7.1f}  R²={r2:.4f}")
     return {"mae": mae, "rmse": rmse, "r2": r2}
 
 
+# trains the XGBoost model, prints evaluation and feature importances, saves to disk
 def train():
-    X_train, X_test, y_train, y_test, df = load_and_split()
+    X_train, X_test, y_train, y_test = load_and_split()
 
-    # Fit scaler on training data (used for feature reporting, XGBoost doesn't need it)
-    scaler = StandardScaler()
-    scaler.fit(X_train[:, :len(CONTINUOUS_FEATURES)])  # scale continuous only
-
-    # XGBoost — hyperparameters tuned for G3D Mark range (~37 to ~40000)
     model = xgb.XGBRegressor(
         n_estimators=500,
         learning_rate=0.05,
@@ -112,43 +72,27 @@ def train():
         verbosity=0,
     )
 
-    print("\nTraining XGBoost model...")
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_test, y_test)],
-        verbose=False,
-    )
+    model.fit(X_train, y_train)
 
-    train_pred = model.predict(X_train)
-    test_pred  = model.predict(X_test)
+    print("Model evaluation:")
+    evaluate("Train", y_train, model.predict(X_train))
+    test_metrics = evaluate("Test",  y_test,  model.predict(X_test))
 
-    print("\nModel evaluation:")
-    train_metrics = evaluate("Train", y_train, train_pred)
-    test_metrics  = evaluate("Test",  y_test,  test_pred)
-
-    # Feature importance
     print("\nTop-10 feature importances:")
-    importances = model.feature_importances_
-    feat_imp = sorted(zip(ALL_FEATURES, importances), key=lambda x: x[1], reverse=True)
+    feat_imp = sorted(zip(all_features, model.feature_importances_), key=lambda x: x[1], reverse=True)
     for feat, imp in feat_imp[:10]:
         print(f"  {feat:30s}: {imp:.4f}")
 
-    # Save model + metadata
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
-        "model":           model,
-        "scaler":          scaler,
-        "feature_cols":    ALL_FEATURES,
-        "continuous_cols": CONTINUOUS_FEATURES,
-        "mem_type_cols":   MEM_TYPE_FEATURES,
-        "target":          TARGET,
-        "test_metrics":    test_metrics,
+        "model":         model,
+        "feature_cols":  all_features,
+        "mem_type_cols": mem_features,
+        "test_metrics":  test_metrics,
     }
-    with open(MODEL_PATH, "wb") as f:
+    Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(model_path, "wb") as f:
         pickle.dump(payload, f)
-    print(f"\nModel saved → {MODEL_PATH}")
-
-    return model, test_metrics
+    print(f"\nModel saved → {model_path}")
 
 
 if __name__ == "__main__":
