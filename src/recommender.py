@@ -8,15 +8,31 @@ import pickle
 import numpy as np
 import pandas as pd
 
-game_vectors = {
+EPSILON = 1e-6
+SOFT_THRESHOLD = 0.80
+GAME_VECTORS = {
     "min":   "data/vectors/game_vectors_min.csv",
     "recom": "data/vectors/game_vectors_recom.csv",
 }
-gpu_vectors    = "data/vectors/gpu_power_vectors.csv"
-model_path     = "models/gpu_performance_model.pkl"
-soft_threshold = 0.80
-
-soft_filter_cols = ["texture_rate", "pixel_rate", "memory_bandwidth_gbs", "tmus", "rops"]
+GPU_VECTORS = "data/vectors/gpu_power_vectors.csv"
+KNN_FEATURE_MAP = {
+    "texture_rate": ("texture_rate", "texture_rate"),
+    "pixel_rate": ("pixel_rate", "pixel_rate"),
+    "memory_bandwidth_gbs": ("memory_bandwidth_gbs", "memory_bandwidth_gbs"),
+    "tmus": ("tmus", "tmus"),
+    "rops": ("rops", "rops"),
+    "memory_speed_mhz": ("memory_speed_mhz", "memory_speed_mhz"),
+    "boost_clock_mhz": ("boost_clock_mhz", "boost_clock_mhz"),
+}
+SOFT_FILTER_MAP = {
+    "texture_rate": "texture_rate",
+    "pixel_rate": "pixel_rate",
+    "memory_bandwidth_gbs": "memory_bandwidth_gbs",
+    "tmus": "tmus",
+    "rops": "rops",
+}
+MODEL_PATH = "models/gpu_performance_model.pkl"
+SOFT_FILTER_COLS = list(SOFT_FILTER_MAP.values())
 
 
 # looks up the game by exact name first, falls back to partial match
@@ -53,7 +69,7 @@ def soft_filter(gpus, game, threshold):
     mask    = pd.Series(True, index=gpus.index)
     applied = []
 
-    for col in soft_filter_cols:
+    for col in SOFT_FILTER_COLS:
         req = game.get(col)
         if pd.isna(req) or req <= 0:
             continue
@@ -78,6 +94,15 @@ def prepare_features(gpus, feature_cols, mem_type_cols):
         df[col] = df[col].fillna(df[col].median()) if col in df.columns else 0.0
 
     return np.nan_to_num(df[feature_cols].values.astype(float), nan=0.0)
+
+
+def build_gpu_features_for_ml(gpus, feature_cols, mem_type_cols):
+    return prepare_features(gpus, feature_cols, mem_type_cols)
+
+
+def load_ml_model(path=MODEL_PATH):
+    with open(path, "rb") as f:
+        return pickle.load(f)
 
 
 # ranks filtered GPUs by pre-computed perf_score / TDP and returns the top k
@@ -121,9 +146,9 @@ def recommend_ml(game, gpus, k, threshold, payload):
 
 
 # main entry point — loads data, finds the game, and dispatches to the right method
-def recommend(game_name, k=5, mode="min", method="top_k", threshold=soft_threshold):
-    games = pd.read_csv(game_vectors[mode])
-    gpus  = pd.read_csv(gpu_vectors)
+def recommend(game_name, k=5, mode="min", method="top_k", threshold=SOFT_THRESHOLD):
+    games = pd.read_csv(GAME_VECTORS[mode])
+    gpus  = pd.read_csv(GPU_VECTORS)
     game  = find_game(games, game_name)
 
     print(f"\nGame   : {game['name']}")
@@ -131,7 +156,7 @@ def recommend(game_name, k=5, mode="min", method="top_k", threshold=soft_thresho
     print(f"Method : {method}\n")
 
     if method == "ml":
-        with open(model_path, "rb") as f:
+        with open(MODEL_PATH, "rb") as f:
             payload = pickle.load(f)
         return recommend_ml(game, gpus, k, threshold, payload)
     return recommend_top_k(game, gpus, k, threshold)
@@ -143,7 +168,7 @@ def main():
     parser.add_argument("--k",         type=int,   default=5,                   help="Number of GPUs to return (default: 5)")
     parser.add_argument("--mode",      default="min",   choices=["min", "recom"], help="Use minimum or recommended requirements (default: min)")
     parser.add_argument("--method",    default="top_k", choices=["top_k", "ml"], help="Ranking method (default: top_k)")
-    parser.add_argument("--threshold", type=float, default=soft_threshold,        help="Soft filter threshold 0-1 (default: 0.80)")
+    parser.add_argument("--threshold", type=float, default=SOFT_THRESHOLD,        help="Soft filter threshold 0-1 (default: 0.80)")
     args = parser.parse_args()
 
     recommend(args.game, k=args.k, mode=args.mode, method=args.method, threshold=args.threshold)

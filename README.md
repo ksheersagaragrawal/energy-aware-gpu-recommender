@@ -139,6 +139,8 @@ The command `python3 -m src.run_recommendation_experiment --output-dir outputs/r
 
 It also writes a `run_summary.txt` file in the output directory that logs the exact command and the main experiment settings.
 
+The shared implementation lives in `src/recommender_utility.py`, which holds the feasibility filtering, KNN retrieval, power prediction attachment, utility scoring, and pair-feature helpers used by the experiment.
+
 ## Power-Model Ablation
 
 The command `python3 -m src.ablation_power_models --output-dir data/results` runs the power-model feature ablation study used in the report.
