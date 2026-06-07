@@ -98,3 +98,9 @@ The goal is to study GPU hardware behavior in a simple and interpretable way.
 The command `python3 -m src.run_recommendation_experiment --output-dir outputs/recommendation_final` runs the report-aligned GPU recommendation experiment for both static and G3D scoring modes, using the same feasibility filters and train/test split.
 
 It also writes a `run_summary.txt` file in the output directory that logs the exact command and the main experiment settings.
+
+## Power-Model Ablation
+
+The command `python3 -m src.ablation_power_models --output-dir data/results` runs the power-model feature ablation study used in the report.
+
+It compares feature subsets for the TDP and PSU prediction models and writes the ablation tables into `data/results/`.
