@@ -93,6 +93,63 @@ The performance score is a static hardware-based proxy.
 
 The goal is to study GPU hardware behavior in a simple and interpretable way.
 
+## Usage
+
+### 1. Scrape PassMark benchmarks
+
+Fetches GPU G3D Mark scores from PassMark and matches them against the GPU specs dataset.
+
+```bash
+python3 src/scrape_passmark.py
+```
+
+Output: `data/raw/passmark_benchmarks.csv`
+
+### 2. Build training dataset
+
+Joins PassMark scores with GPU specs and one-hot encodes memory types.
+
+```bash
+python3 src/build_benchmark_dataset.py
+```
+
+Output: `data/training/gpu_benchmark_dataset.csv`
+
+### 3. Train the XGBoost model
+
+Trains a regression model to predict G3D Mark from hardware specs.
+
+```bash
+python3 src/train_ml_recommender.py
+```
+
+Output: `models/gpu_performance_model.pkl`
+
+### 4. Run the recommender
+
+```bash
+# ML-based ranking (predicted G3D Mark per watt)
+python3 src/recommender.py --game "Cyberpunk 2077" --method ml --k 5
+
+# Static ranking (geometric mean perf score per watt)
+python3 src/recommender.py --game "Cyberpunk 2077" --method top_k --k 5
+
+# Use recommended requirements instead of minimum
+python3 src/recommender.py --game "Cyberpunk 2077" --method ml --mode recom --k 5
+```
+
+**Arguments:**
+
+| Argument | Default | Description |
+|---|---|---|
+| `--game` | required | Game name (partial match supported) |
+| `--k` | 5 | Number of GPUs to return |
+| `--mode` | `min` | `min` or `recom` requirements |
+| `--method` | `top_k` | `top_k` (static) or `ml` (XGBoost) |
+| `--threshold` | 0.80 | Soft filter threshold (0–1) |
+
+---
+
 ## Unified Recommendation Experiment
 
 The command `python3 -m src.run_recommendation_experiment --output-dir outputs/recommendation_final` runs the report-aligned GPU recommendation experiment for both static and G3D scoring modes, using the same feasibility filters and train/test split.
