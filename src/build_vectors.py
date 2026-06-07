@@ -1,9 +1,10 @@
 """Build requirement vectors, performance vectors, and normalized performance
 scores from cleaned game requirements data.
 
-Renames columns to align with TechPowerUp GPU spec naming, extracts hard/soft
-filter requirement vectors, computes min-max-normalized geometric-mean
-performance scores, and saves output CSVs.
+Adds hard/soft filter counts, min-max-normalized perf features, and a
+geometric-mean perf_score. Column names are kept as produced by the cleaning
+step — they already match the GPU-side canonical naming, so the feasibility
+filter is a column-name comparison rather than a translation.
 
 Usage:
     python src/build_vectors.py
@@ -18,33 +19,16 @@ ROOT = Path(__file__).resolve().parent.parent
 CLEANED_DIR = ROOT / "data" / "cleaned"
 OUT_DIR = ROOT / "data" / "vectors"
 
-COLUMN_RENAME = {
-    "process_nm": "process_size",
-    "tmus": "tmus",
-    "texture_rate": "texture_rate",
-    "rops": "rops",
-    "pixel_rate": "pixel_rate",
-    "direct_x": "directx",
-    "shader": "shader_model",
-    "open_gl": "opengl",
-    "memory_mb": "memory_size",
-    "memory_speed_mhz": "memory_clock",
-    "memory_type": "memory_type",
-    "memory_bandwidth_gbs": "bandwidth",
-    "boost_clock_mhz": "boost_clock",
-    "psu_w": "suggested_psu",
-}
-
-HARD_FILTER_COLS = ["memory_size", "directx"]
-SOFT_FILTER_COLS = ["texture_rate", "pixel_rate", "bandwidth", "tmus", "rops"]
+HARD_FILTER_COLS = ["memory_mb", "direct_x"]
+SOFT_FILTER_COLS = ["texture_rate", "pixel_rate", "memory_bandwidth_gbs", "tmus", "rops"]
 PERF_COLS = [
     "texture_rate",
     "pixel_rate",
-    "bandwidth",
+    "memory_bandwidth_gbs",
     "tmus",
     "rops",
-    "memory_clock",
-    "boost_clock",
+    "memory_speed_mhz",
+    "boost_clock_mhz",
 ]
 
 EPSILON = 1e-6
@@ -61,13 +45,6 @@ def load_cleaned():
     assert df_recom.shape == (7292, 26), f"recom shape unexpected: {df_recom.shape}"
     print(f"[load] min: {df_min.shape}, recom: {df_recom.shape}")
     return df_min, df_recom
-
-
-def rename_columns(df):
-    df = df.rename(columns=COLUMN_RENAME)
-    for new_name in COLUMN_RENAME.values():
-        assert new_name in df.columns, f"Missing column after rename: {new_name}"
-    return df
 
 
 def add_filter_counts(df):
@@ -180,7 +157,6 @@ def main():
     results = {}
     for label, df in [("min", df_min), ("recom", df_recom)]:
         print(f"\n--- Processing {label} ---")
-        df = rename_columns(df)
         df = add_filter_counts(df)
         df = normalize_perf_features(df)
         df = compute_perf_score(df)
