@@ -24,11 +24,18 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingRegressor
 
-from phase1_topk_knn_analysis import (
-    Phase1Config,
-    TopKRecommendationAnalyzer,
-    _attach_power_predictions,
-)
+try:
+    from src.phase1_topk_knn_analysis import (
+        Phase1Config,
+        TopKRecommendationAnalyzer,
+        _attach_power_predictions,
+    )
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from phase1_topk_knn_analysis import (
+        Phase1Config,
+        TopKRecommendationAnalyzer,
+        _attach_power_predictions,
+    )
 
 
 PREDICTION_METRICS_OUT = "phase2_model_regression_metrics.csv"

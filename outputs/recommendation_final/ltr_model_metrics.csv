@@ -1,0 +1,2 @@
+model,backend,train_time_sec,inference_time_sec,ndcg@5,recall_label3@5,model_role
+XGBRanker,cpu,43.71875357627869,0.3151586055755615,0.7542443745079731,1.0,ltr_ranker

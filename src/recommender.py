@@ -20,10 +20,16 @@ Usage:
 import argparse
 import pickle
 from pathlib import Path
+import warnings
 
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
+
+try:
+    from sklearn.base import InconsistentVersionWarning
+except Exception:
+    InconsistentVersionWarning = None
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,8 +49,25 @@ ML_MEM_TYPE_CATEGORIES = [
 
 SOFT_THRESHOLD = 0.80
 
-# Shared canonical column names between GPU and game datasets — no translation
-# needed because both pipelines emit the same names.
+# Shared canonical column names between GPU and game datasets.
+SOFT_FILTER_MAP = {
+    "texture_rate": "texture_rate",
+    "pixel_rate": "pixel_rate",
+    "memory_bandwidth_gbs": "memory_bandwidth_gbs",
+    "tmus": "tmus",
+    "rops": "rops",
+}
+
+KNN_FEATURE_MAP = {
+    "texture_rate": ("texture_rate", "texture_rate"),
+    "pixel_rate": ("pixel_rate", "pixel_rate"),
+    "memory_bandwidth_gbs": ("memory_bandwidth_gbs", "memory_bandwidth_gbs"),
+    "tmus": ("tmus", "tmus"),
+    "rops": ("rops", "rops"),
+    "memory_speed_mhz": ("memory_speed_mhz", "memory_speed_mhz"),
+    "boost_clock_mhz": ("boost_clock_mhz", "boost_clock_mhz"),
+}
+
 KNN_FEATURES = [
     "texture_rate",
     "pixel_rate",
@@ -185,7 +208,11 @@ def recommend_knn(game: pd.Series, gpus: pd.DataFrame, k: int) -> pd.DataFrame:
 
 def load_ml_model():
     with open(MODEL_PATH, "rb") as f:
-        return pickle.load(f)
+        if InconsistentVersionWarning is None:
+            return pickle.load(f)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+            return pickle.load(f)
 
 
 def build_gpu_features_for_ml(gpus: pd.DataFrame, feature_cols: list, mem_type_cols: list) -> np.ndarray:
@@ -194,11 +221,11 @@ def build_gpu_features_for_ml(gpus: pd.DataFrame, feature_cols: list, mem_type_c
     df = gpus.copy()
 
     # One-hot encode memory type to match training format
+    raw_mem_col = "memory_type_raw" if "memory_type_raw" in df.columns else "memory_type"
     for col in mem_type_cols:
         cat = col[4:].upper()  # strip "mem_" prefix, e.g. "mem_gddr6" → "GDDR6"
-        raw_col = "memory_type_raw"
-        if raw_col in df.columns:
-            df[col] = (df[raw_col].str.upper() == cat).astype(int)
+        if raw_mem_col in df.columns:
+            df[col] = (df[raw_mem_col].astype(str).str.upper() == cat).astype(int)
         else:
             df[col] = 0
 

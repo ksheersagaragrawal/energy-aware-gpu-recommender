@@ -22,9 +22,14 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingRegressor
 
-from recommender import KNN_FEATURE_MAP, EPSILON
-from phase1_topk_knn_analysis import Phase1Config, TopKRecommendationAnalyzer, _attach_power_predictions
-from phase2_ml_utility_analysis import _build_pair_features, _train_model, _utility_formula_scores
+try:
+    from src.recommender import KNN_FEATURE_MAP, EPSILON
+    from src.phase1_topk_knn_analysis import Phase1Config, TopKRecommendationAnalyzer, _attach_power_predictions
+    from src.phase2_ml_utility_analysis import _build_pair_features, _train_model, _utility_formula_scores
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from recommender import KNN_FEATURE_MAP, EPSILON
+    from phase1_topk_knn_analysis import Phase1Config, TopKRecommendationAnalyzer, _attach_power_predictions
+    from phase2_ml_utility_analysis import _build_pair_features, _train_model, _utility_formula_scores
 
 
 GPU_ID_COL = "gpu_id"
