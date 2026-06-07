@@ -88,9 +88,17 @@ def load_power_vector_dataset(path: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def _memory_type_one_hot_cols(df: pd.DataFrame) -> List[str]:
+    """Return the memory-type indicator columns used by the current vector dataset."""
+    raw_cols = [col for col in df.columns if col.startswith("memory_type_raw_")]
+    if raw_cols:
+        return raw_cols
+    return [col for col in df.columns if col.startswith("memory_type_") and col != "memory_type"]
+
+
 def get_feature_sets(df: pd.DataFrame) -> Dict[str, List[str]]:
     """Return feature sets with dynamic memory type one-hot columns for Full."""
-    memory_type_cols = [col for col in df.columns if col.startswith("memory_type_raw_")]
+    memory_type_cols = _memory_type_one_hot_cols(df)
     feature_sets = {}
     for name, cols in FEATURE_SET_DEFS.items():
         if name == "Full":
@@ -449,8 +457,8 @@ def main() -> None:
     df = load_power_vector_dataset(args.input_path)
     feature_sets = get_feature_sets(df)
 
-    if "Full" in feature_sets and not any(col.startswith("memory_type_raw_") for col in feature_sets["Full"]):
-        raise ValueError("Full feature set requires memory_type_raw_* one-hot columns, but none were found.")
+    if "Full" in feature_sets and not any(col.startswith("memory_type_") for col in feature_sets["Full"]):
+        raise ValueError("Full feature set requires memory_type_* one-hot columns, but none were found.")
 
     model_specs = get_model_specs(args.tdp_metrics, args.psu_metrics)
 
