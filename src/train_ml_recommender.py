@@ -35,7 +35,7 @@ all_features = continuous_features + mem_features
 # loads the training dataset, fills missing values, and splits into train/test
 def load_and_split():
     df = pd.read_csv(dataset_path)
-    df = df.dropna(subset=["g3d_mark", "texture_rate", "pixel_rate", "tmus", "rops", "tdp_w"])
+    df = df.dropna(subset=["g3d_mark", "texture_rate", "pixel_rate", "tmus", "rops"])
 
     df[mem_features]        = df[mem_features].fillna(0)
     df[continuous_features] = df[continuous_features].apply(lambda col: col.fillna(col.median()))
