@@ -31,7 +31,7 @@ def build():
     passmark = pd.read_csv(passmark_path)
 
     df = specs.merge(passmark[["spec_name", "g3d_mark", "match_score"]], left_on="name", right_on="spec_name", how="inner")
-    df = df.dropna(subset=["g3d_mark", "texture_rate", "pixel_rate", "tmus", "rops", "tdp_w"])
+    df = df.dropna(subset=["g3d_mark", "texture_rate", "pixel_rate", "tmus", "rops"])
 
     for mem in memory_types:
         df[f"mem_{mem.lower()}"] = (df["memory_type"].str.upper() == mem.upper()).astype(int)
