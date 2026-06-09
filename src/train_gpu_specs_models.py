@@ -53,7 +53,6 @@ CONFIDENCE_THRESHOLDS_OUT = RESULTS_DIR / "confidence_thresholds.json"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[device] using {DEVICE}")
 
-# Feature tiers, by raw column name in the vectors CSV
 TIER_1 = [
     "process_nm", "memory_speed_mhz", "memory_mb", "memory_bandwidth_gbs",
     "tmus", "rops", "pixel_rate", "texture_rate", "direct_x",
@@ -65,15 +64,10 @@ TIER_2 = [
 TIER_3_HEAVY = ["gpu_clock_mhz", "base_clock_mhz", "tensor_cores", "rt_cores"]
 BOOST_CLOCK = "boost_clock_mhz"
 
-# Columns that get a missing-indicator companion for UQ models (Tier 2 + boost_clock)
 INDICATOR_COLS = TIER_2 + [BOOST_CLOCK]
 
 QXGB_QUANTILES = (0.05, 0.50, 0.95)
-Z_90 = 1.6448536269514722  # z for the 90% Gaussian interval
-
-# ---------------------------------------------------------------------------
-# Feature helpers
-# ---------------------------------------------------------------------------
+Z_90 = 1.6448536269514722 
 
 
 def standardized(cols):
@@ -118,10 +112,6 @@ def index_split(n, val_frac=0.10, test_frac=0.20, seed=42):
     return train_idx, val_idx, test_idx
 
 
-# ---------------------------------------------------------------------------
-# Evaluation helpers
-# ---------------------------------------------------------------------------
-
 
 def evaluate_point(y_true, y_pred):
     return {
@@ -144,10 +134,6 @@ def evaluate_uq_quantile(y_true, lower, upper):
     width = (upper - lower).mean()
     return {"coverage_90": float(covered), "mean_interval_width": float(width)}
 
-
-# ---------------------------------------------------------------------------
-# Plot helpers
-# ---------------------------------------------------------------------------
 
 
 def _slug(s):
@@ -249,10 +235,6 @@ def save_sigma_distribution(sigma_train, target, model_name, thresholds):
     plt.savefig(FIGURES_DIR / f"sigma_distribution_{target}_{_slug(model_name)}.png", dpi=100)
     plt.close()
 
-
-# ---------------------------------------------------------------------------
-# Point models
-# ---------------------------------------------------------------------------
 
 
 def _fit_and_score(model_cls, params, X_train, X_val, X_test, X_all, y_train, y_val, y_test):
@@ -361,11 +343,6 @@ def xgboost_point(X_train, X_val, X_test, X_all, y_train, y_val, y_test):
     return {"model": "XGBoost", "params": best_params, "val_mae": best_val, **out}
 
 
-# ---------------------------------------------------------------------------
-# MLP
-# ---------------------------------------------------------------------------
-
-
 class MLPModel(nn.Module):
     def __init__(self, input_dim, hidden=(256, 128), dropout=0.1):
         super().__init__()
@@ -449,11 +426,6 @@ def mlp(X_train, X_val, X_test, X_all, y_train, y_val, y_test):
         "preds_all": preds_all, "test_pred": test_pred,
         "inference_latency_ms": float(latency),
     }
-
-
-# ---------------------------------------------------------------------------
-# UQ models
-# ---------------------------------------------------------------------------
 
 
 def bayesian_ridge(X_train, X_val, X_test, X_all, y_train, y_val, y_test):
@@ -598,11 +570,6 @@ def gaussian_process(X_train, X_val, X_test, X_all, y_train, y_val, y_test):
     }
 
 
-# ---------------------------------------------------------------------------
-# Confidence flags and outlier detection
-# ---------------------------------------------------------------------------
-
-
 def compute_confidence_flags(sigma_all, sigma_train, low_pct=33, high_pct=67):
     low_thr = float(np.percentile(sigma_train, low_pct))
     high_thr = float(np.percentile(sigma_train, high_pct))
@@ -626,10 +593,6 @@ def outliers_quantile(y_true_all, lower_all, upper_all):
     return out
 
 
-# ---------------------------------------------------------------------------
-# Per-target pipeline
-# ---------------------------------------------------------------------------
-
 
 def run_target(df_vectors, target, predictions_acc):
     """Train all 10 models for a single target. Returns metrics list, updates
@@ -642,7 +605,6 @@ def run_target(df_vectors, target, predictions_acc):
     train_df = df_vectors[train_mask].reset_index(drop=True)
     print(f"  training-eligible rows: {len(train_df)}  /  total: {len(df_vectors)}")
 
-    # Reproducible row-index split on the training-eligible subset
     train_idx, val_idx, test_idx = index_split(len(train_df))
     print(f"  split: train={len(train_idx)}  val={len(val_idx)}  test={len(test_idx)}")
 
@@ -654,7 +616,7 @@ def run_target(df_vectors, target, predictions_acc):
 
     cat_cols = categorical_cols(df_vectors)
 
-    # ---- Linear / MLP / Bayesian Ridge feature matrix: standardized + categorical
+    #  Linear / MLP / Bayesian Ridge feature matrix: standardized + categorical
     std_cols = standardized(TIER_1 + TIER_2 + [BOOST_CLOCK])
     X_std_all = df_vectors[std_cols + cat_cols].copy()
     X_std_train_full = train_df[std_cols + cat_cols].copy()
@@ -662,7 +624,7 @@ def run_target(df_vectors, target, predictions_acc):
     X_std_val = X_std_train_full.iloc[val_idx].reset_index(drop=True)
     X_std_test = X_std_train_full.iloc[test_idx].reset_index(drop=True)
 
-    # ---- Bayesian Ridge: same standardized features + missing indicators
+    #  Bayesian Ridge: same standardized features + missing indicators
     br_indicator_train = train_df[INDICATOR_COLS].isna().astype(int)
     br_indicator_train.columns = [f"is_missing_{c}" for c in INDICATOR_COLS]
     br_indicator_all = df_vectors[INDICATOR_COLS].isna().astype(int)
@@ -674,7 +636,7 @@ def run_target(df_vectors, target, predictions_acc):
     X_br_val = X_br_train_full.iloc[val_idx].reset_index(drop=True)
     X_br_test = X_br_train_full.iloc[test_idx].reset_index(drop=True)
 
-    # ---- GP: standardized Tier 1 + Tier 2 + boost_clock + missing indicators (no categorical)
+    #  GP: standardized Tier 1 + Tier 2 + boost_clock + missing indicators (no categorical)
     gp_std_cols = standardized(TIER_1 + TIER_2 + [BOOST_CLOCK])
     X_gp_all = pd.concat([df_vectors[gp_std_cols], br_indicator_all], axis=1)
     X_gp_train_full = pd.concat([train_df[gp_std_cols], br_indicator_train], axis=1)
@@ -682,7 +644,7 @@ def run_target(df_vectors, target, predictions_acc):
     X_gp_val = X_gp_train_full.iloc[val_idx].reset_index(drop=True)
     X_gp_test = X_gp_train_full.iloc[test_idx].reset_index(drop=True)
 
-    # ---- RF / GB: raw Tier 1 + Tier 2 + boost_clock + categorical, median-imputed
+    #  RF / GB: raw Tier 1 + Tier 2 + boost_clock + categorical, median-imputed
     rf_raw = TIER_1 + TIER_2 + [BOOST_CLOCK]
     X_rf_train_full = train_df[rf_raw + cat_cols].copy()
     X_rf_train_pre = X_rf_train_full.iloc[train_idx].reset_index(drop=True)
@@ -695,7 +657,7 @@ def run_target(df_vectors, target, predictions_acc):
     X_rf_all = df_vectors[rf_raw + cat_cols].copy()
     X_rf_all[rf_raw] = X_rf_all[rf_raw].fillna(medians)
 
-    # ---- XGBoost / QXGB Variant A: raw Tier 1 + Tier 2 + Tier 3 + boost_clock + categorical, NaN preserved
+    #  XGBoost / QXGB Variant A: raw Tier 1 + Tier 2 + Tier 3 + boost_clock + categorical, NaN preserved
     xgb_raw = TIER_1 + TIER_2 + TIER_3_HEAVY + [BOOST_CLOCK]
     X_xgb_all = df_vectors[xgb_raw + cat_cols].copy()
     X_xgb_train_full = train_df[xgb_raw + cat_cols].copy()
@@ -703,7 +665,7 @@ def run_target(df_vectors, target, predictions_acc):
     X_xgb_val = X_xgb_train_full.iloc[val_idx].reset_index(drop=True)
     X_xgb_test = X_xgb_train_full.iloc[test_idx].reset_index(drop=True)
 
-    # ---- QXGB Variant B: median-impute (Tier 2 + boost_clock), keep Tier 3 native NaN, add indicators
+    #  QXGB Variant B: median-impute (Tier 2 + boost_clock), keep Tier 3 native NaN, add indicators
     qb_raw_impute = TIER_2 + [BOOST_CLOCK]
     X_qb_train_full = train_df[xgb_raw + cat_cols].copy()
     X_qb_train_pre = X_qb_train_full.iloc[train_idx].reset_index(drop=True)
@@ -722,10 +684,9 @@ def run_target(df_vectors, target, predictions_acc):
     X_qb_all = pd.concat([X_qb_all, br_indicator_all], axis=1)
 
     results = []
-    # actual target values aligned to df_vectors for outlier flagging
     y_actual_all = df_vectors[target].values
 
-    # ---- Point models
+    #  Point models
     for fn, name, X_train_, X_val_, X_test_, X_all_ in [
         (lin_reg, "Linear Regression", X_std_train, X_std_val, X_std_test, X_std_all),
         (ridge_reg, "Ridge Regression", X_std_train, X_std_val, X_std_test, X_std_all),
@@ -746,7 +707,7 @@ def run_target(df_vectors, target, predictions_acc):
         col = f"pred_{target}_{_slug(name)}"
         predictions_acc[col] = res["preds_all"]
 
-    # ---- Bayesian Ridge
+    #  Bayesian Ridge
     t0 = time.perf_counter()
     print("  [Bayesian Ridge] training...")
     br = bayesian_ridge(X_br_train, X_br_val, X_br_test, X_br_all, y_train, y_val, y_test)
@@ -758,7 +719,7 @@ def run_target(df_vectors, target, predictions_acc):
     save_calibration(y_test.values, br["test_pred"], br["test_sigma"], target, "Bayesian Ridge")
     save_coverage(y_test.values, br["test_pred"], br["test_sigma"], target, "Bayesian Ridge")
 
-    # ---- Quantile XGBoost A/B
+    #  Quantile XGBoost A/B
     print("  [Quantile XGBoost] training Variant A (native NaN)...")
     t0 = time.perf_counter()
     qxgb_A = _quantile_xgb_variant(X_xgb_train, X_xgb_val, X_xgb_test, X_xgb_all,
@@ -780,7 +741,7 @@ def run_target(df_vectors, target, predictions_acc):
     save_calibration(y_test.values, qxgb["test_pred"], qxgb["test_sigma"], target, "Quantile XGBoost")
     save_coverage(y_test.values, qxgb["test_pred"], qxgb["test_sigma"], target, "Quantile XGBoost")
 
-    # ---- Gaussian Process
+    #  Gaussian Process
     t0 = time.perf_counter()
     print("  [Gaussian Process] training...")
     gp = gaussian_process(X_gp_train, X_gp_val, X_gp_test, X_gp_all, y_train, y_val, y_test)
@@ -792,7 +753,7 @@ def run_target(df_vectors, target, predictions_acc):
     save_calibration(y_test.values, gp["test_pred"], gp["test_sigma"], target, "Gaussian Process")
     save_coverage(y_test.values, gp["test_pred"], gp["test_sigma"], target, "Gaussian Process")
 
-    # ---- Confidence thresholds and flags, outlier flags
+    #  Confidence thresholds and flags, outlier flags
     confidence_thresholds = {}
     individual_outlier_cols = []
     for res in (br, qxgb, gp):
@@ -825,10 +786,6 @@ def run_target(df_vectors, target, predictions_acc):
 
     return results, confidence_thresholds
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main():
@@ -881,7 +838,6 @@ def main():
     metrics_df[metrics_df["target"] == "tdp_w"].sort_values("test_mae").to_csv(TDP_METRICS_OUT, index=False)
     metrics_df[metrics_df["target"] == "psu_w"].sort_values("test_mae").to_csv(PSU_METRICS_OUT, index=False)
 
-    # Predictions CSV
     predictions.to_csv(PREDICTIONS_OUT, index=False)
 
     # Best-model summary (lowest test_mae per target)
@@ -897,7 +853,6 @@ def main():
         })
     pd.DataFrame(best_rows).to_csv(BEST_MODEL_SUMMARY_OUT, index=False)
 
-    # Confidence thresholds JSON
     with open(CONFIDENCE_THRESHOLDS_OUT, "w") as f:
         json.dump(all_thresholds, f, indent=2)
 
