@@ -69,9 +69,14 @@ def stand_cols(df):
 
 def onehot_help(df):
     """onehot encode memory"""
+    if "memory_type_raw" in df.columns:
+        memory_col = "memory_type_raw"
+    else:
+        memory_col = "memory_type"
+
     oneh = OneHotEncoder(sparse_output=False)
-    cols = oneh.fit_transform(df[["memory_type_raw"]])
-    encoded_col_names = oneh.get_feature_names_out(["memory_type_raw"])
+    cols = oneh.fit_transform(df[[memory_col]])
+    encoded_col_names = oneh.get_feature_names_out([memory_col])
     df[encoded_col_names] = cols
     return df
 
