@@ -89,18 +89,18 @@ def compute_perf_score(df):
 
 def validate(df_min, df_recom):
     for label, df in [("min", df_min), ("recom", df_recom)]:
-        # 1. Row count
+        # Row count
         assert len(df) == 7292, f"{label} row count: {len(df)}"
 
-        # 3. perf_score in [0, 1] or NaN
+        # perf_score in [0, 1] or NaN
         scores = df["perf_score"].dropna()
         assert (scores >= 0).all(), f"{label} has negative perf_score"
         assert (scores <= 1.0 + EPSILON).all(), f"{label} has perf_score > 1"
 
-        # 5. perf_feature_count in [0, 7]
+        # perf_feature_count in [0, 7]
         assert df["perf_feature_count"].between(0, 7).all(), f"{label} perf_feature_count out of range"
 
-        # 6. norm_* in [EPSILON, 1.0] or NaN
+        # norm_* in [EPSILON, 1.0] or NaN
         for col in PERF_COLS:
             norm_col = f"norm_{col}"
             vals = df[norm_col].dropna()
@@ -108,14 +108,14 @@ def validate(df_min, df_recom):
                 assert (vals >= EPSILON - 1e-10).all(), f"{label} {norm_col} below epsilon"
                 assert (vals <= 1.0 + 1e-10).all(), f"{label} {norm_col} above 1.0"
 
-        # 7. filter counts in range
+        # filter counts in range
         assert df["hard_filter_count"].between(0, 2).all(), f"{label} hard_filter_count out of range"
         assert df["soft_filter_count"].between(0, 5).all(), f"{label} soft_filter_count out of range"
 
-        # 8. Column count
+        # Column count
         assert len(df.columns) == 37, f"{label} has {len(df.columns)} columns, expected 37"
 
-    # 2. Same game sets
+    # Same game sets
     assert len(df_min) == len(df_recom), "row counts differ"
     assert set(df_min["name"]) == set(df_recom["name"]), "game sets differ"
 

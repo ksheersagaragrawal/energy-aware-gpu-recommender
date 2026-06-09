@@ -23,15 +23,11 @@ CLEANED_PATH = ROOT / "data" / "cleaned" / "gpu_specs_cleaned.csv"
 OUT_PATH = ROOT / "data" / "vectors" / "gpu_power_vectors.csv"
 
 
-# Numeric features that get standardized (mean 0, std 1) for linear / MLP / BR / GP models.
-# NaN values are median-imputed before standardization so downstream models don't choke.
-# Tree models use the raw (NaN-preserving) columns instead.
-#
-# Includes Tier 1 (all 9, 0% NaN), Tier 2 (7 cols, 1-25% NaN), and boost_clock_mhz from
-# Tier 3. The other Tier 3 columns (gpu_clock_mhz, base_clock_mhz, tensor_cores, rt_cores)
-# are excluded — their NaN rate (35-90%) is too high for imputation to be meaningful.
+# Numeric features standardized (mean 0, std 1) for linear/MLP models; NaNs are
+# median-imputed first. Tree models use the raw columns. gpu_clock_mhz,
+# base_clock_mhz, tensor_cores, and rt_cores are excluded (35-90% missing —
+# too sparse to impute); boost_clock_mhz is kept as the one higher-NaN column.
 STANDARDIZE_COLS = [
-    # Tier 1 — 0% NaN, required features
     "process_nm",
     "tmus",
     "rops",
@@ -41,7 +37,6 @@ STANDARDIZE_COLS = [
     "memory_mb",
     "memory_speed_mhz",
     "memory_bandwidth_gbs",
-    # Tier 2 — <25% NaN, median-imputable
     "transistors_m",
     "die_size_mm2",
     "density_kmm2",
@@ -49,14 +44,13 @@ STANDARDIZE_COLS = [
     "release_year",
     "shading_units",
     "fp32_gflops",
-    # Boost clock from Tier 3 — highest-signal of the heavy-NaN cols
     "boost_clock_mhz",
 ]
 
 # Categorical columns to one-hot encode. `generation` is kept as a raw string
 # column in the cleaned CSV but excluded here — it has 250+ distinct values
 # (mostly product-line labels like "GeForce 600") and one-hot encoding it
-# blows up the feature space without adding signal beyond `architecture`.
+# explodes the feature space without adding signal beyond `architecture`.
 ONEHOT_COLS = ["memory_type", "architecture"]
 
 # Performance features for perf_score — must match the game side

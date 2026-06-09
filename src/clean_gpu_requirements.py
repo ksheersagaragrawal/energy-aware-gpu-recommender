@@ -80,11 +80,9 @@ REQUIRED_FEATURES = [
 ]
 
 
-# Out-of-range values get coerced to NaN and logged. Lower bounds are kept
-# permissive on purpose so pre-3D cards (NV1, Riva 128, EGA Wonder, etc.) and
-# early integrated frame buffers stay in the dataset; upper bounds remain
-# strict because datacenter / compute-only cards (Instinct MI300+, etc.)
-# have a different power profile from gaming GPUs and would confound the model.
+# Out-of-range values are coerced to NaN and logged. Lower bounds stay permissive
+# so very old pre-3D cards survive; upper bounds stay strict to exclude
+# datacenter/compute cards, whose power profile would confound the model.
 RANGE_CHECKS = {
     "tdp_w":     (0.0,   700.0),
     "psu_w":     (0.0,   2000.0),
