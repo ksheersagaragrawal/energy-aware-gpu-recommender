@@ -5,3 +5,8 @@ matplotlib
 torch
 xgboost
 regex
+joblib
+requests
+beautifulsoup4
+rapidfuzz
+scipy
