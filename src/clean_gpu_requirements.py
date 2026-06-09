@@ -55,7 +55,6 @@ KEEP_NUMERIC = [
 ]
 
 
-# String column keep-list: (raw_col, clean_col)
 KEEP_STRING = [
     ("Brand",                               "brand"),
     ("Name",                                "name"),
@@ -65,7 +64,6 @@ KEEP_STRING = [
 ]
 
 
-# Transient columns used only for row filtering, then discarded
 FILTER_COLS = [
     "Graphics Card__Production",
     "Mobile Graphics__Release Date",
@@ -75,7 +73,7 @@ FILTER_COLS = [
 ]
 
 
-# Rows missing any of these features are dropped — all are required for downstream
+# Rows missing any of these features are dropped 
 REQUIRED_FEATURES = [
     "process_nm", "tmus", "rops", "texture_rate", "pixel_rate",
     "direct_x", "memory_mb", "memory_bandwidth_gbs",
@@ -94,9 +92,6 @@ RANGE_CHECKS = {
 }
 
 
-# ----------------------------------------------------------------------------
-# Value parsers
-# ----------------------------------------------------------------------------
 
 def _is_missing(value):
     if pd.isna(value):
@@ -257,9 +252,6 @@ PARSERS = {
 }
 
 
-# ----------------------------------------------------------------------------
-# Pipeline steps
-# ----------------------------------------------------------------------------
 
 def _is_multi_gpu(value):
     """Detect dual-GPU SKUs like '2 x 2304' in Top__TMUS / Top__ROPS."""
